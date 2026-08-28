@@ -34,7 +34,7 @@ This is enforced in three separate places:
 4. **Check `storage/uploads` is writable** - it is only used as a scratch area
    while you are confirming the columns of an uploaded file.
 
-Requires PHP 7.4 or later. Reading `.xlsx` files needs the standard `zip`
+Requires PHP 8.0 or later (davidmitchell.me.uk runs 8.2). Reading `.xlsx` files needs the standard `zip`
 extension, which Plesk has switched on by default; if it is missing, save the
 file as CSV instead.
 
