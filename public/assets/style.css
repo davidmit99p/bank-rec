@@ -1,0 +1,72 @@
+:root{
+  --ink:#1b1a17; --muted:#6b6862; --line:#ddd8ce; --bg:#faf9f6; --panel:#fff;
+  --accent:#8a5a2b; --good:#1f6b3a; --bad:#a12f2f; --warn:#8a6d1f;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+h1,h2,h3{font-family:"Source Serif 4",Georgia,serif;font-weight:600;margin:0 0 .5rem}
+h1{font-size:1.6rem} h2{font-size:1.2rem;margin-top:1.6rem} h3{font-size:1rem}
+a{color:var(--accent)}
+.site-header{display:flex;flex-wrap:wrap;gap:1rem;align-items:center;
+  padding:.75rem 1.25rem;background:var(--panel);border-bottom:1px solid var(--line)}
+.brand{font-family:"Source Serif 4",Georgia,serif;font-weight:700;font-size:1.1rem;
+  text-decoration:none;color:var(--ink)}
+.site-header nav{display:flex;flex-wrap:wrap;gap:.25rem}
+.site-header nav a{padding:.3rem .6rem;border-radius:5px;text-decoration:none;color:var(--muted)}
+.site-header nav a:hover{background:#f0ece4}
+.site-header nav a.on{background:var(--accent);color:#fff}
+.container{max-width:1500px;margin:0 auto;padding:1.25rem}
+.site-footer{padding:1.5rem;text-align:center;color:var(--muted);font-size:.85rem}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:1rem;margin-bottom:1rem}
+.muted{color:var(--muted)} .small{font-size:.85rem}
+.right{text-align:right} .center{text-align:center}
+.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.neg{color:var(--bad)} .pos{color:var(--good)}
+
+/* two-sided layouts: ledger left, bank right */
+.sides{display:grid;grid-template-columns:1fr 1fr;gap:1rem;align-items:start}
+@media (max-width:900px){.sides{grid-template-columns:1fr}}
+.side-head{display:flex;justify-content:space-between;align-items:baseline;gap:1rem;
+  border-bottom:2px solid var(--accent);padding-bottom:.35rem;margin-bottom:.5rem}
+.side-head h2{margin:0}
+
+table{width:100%;border-collapse:collapse;font-size:.9rem}
+th,td{padding:.35rem .5rem;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{font-weight:600;color:var(--muted);font-size:.8rem;text-transform:uppercase;letter-spacing:.03em;
+  position:sticky;top:0;background:var(--panel)}
+tbody tr:hover{background:#f6f3ec}
+tr.ticked{background:#fdf6e6}
+.scroll{max-height:60vh;overflow:auto;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+.desc{max-width:34ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+label{display:block;font-size:.85rem;color:var(--muted);margin:.6rem 0 .15rem}
+input[type=text],input[type=date],input[type=number],select,textarea{
+  width:100%;padding:.4rem .5rem;border:1px solid var(--line);border-radius:5px;
+  background:#fff;font:inherit;color:var(--ink)}
+textarea{min-height:4rem}
+.row{display:flex;gap:.5rem} .row>*{flex:1}
+.btn{display:inline-block;padding:.5rem .9rem;border:1px solid var(--accent);border-radius:6px;
+  background:var(--accent);color:#fff;font:inherit;cursor:pointer;text-decoration:none}
+.btn:hover{filter:brightness(1.08)}
+.btn.ghost{background:transparent;color:var(--accent)}
+.btn.danger{background:var(--bad);border-color:var(--bad)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.actions{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin-top:1rem}
+
+.flash{background:#eef6ee;border:1px solid #cfe3cf;color:var(--good);
+  padding:.6rem .8rem;border-radius:6px;margin:0 0 1rem}
+.tag{display:inline-block;padding:.05rem .4rem;border-radius:4px;background:#efeae0;
+  font-size:.75rem;color:var(--muted)}
+.tag.manual{background:#e8eef7;color:#33507a}
+.balance{font-weight:600;padding:.5rem .75rem;border-radius:6px;border:1px solid var(--line);background:var(--panel)}
+.balance.ok{border-color:#cfe3cf;background:#eef6ee;color:var(--good)}
+.balance.off{border-color:#eccfcf;background:#fbeeee;color:var(--bad)}
+.stats{display:flex;flex-wrap:wrap;gap:1rem}
+.stat{flex:1 1 160px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:.75rem}
+.stat b{display:block;font-size:1.5rem;font-family:"Source Serif 4",Georgia,serif}
+.group-card{border:1px solid var(--line);border-radius:8px;background:var(--panel);
+  padding:.6rem .8rem;margin-bottom:.6rem}
+.group-card.off{opacity:.5}
+.group-card header{display:flex;flex-wrap:wrap;gap:.75rem;align-items:center;margin-bottom:.4rem}
+.group-card .sides{gap:.75rem}

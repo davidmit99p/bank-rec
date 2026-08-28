@@ -1,0 +1,59 @@
+<?php
+require_once __DIR__ . '/../includes/layout.php';
+
+$pdo = db();
+function side_stats($table)
+{
+    $r = db()->query("SELECT COUNT(*) total,
+                             SUM(matched_at IS NULL) open,
+                             COALESCE(SUM(CASE WHEN matched_at IS NULL THEN value ELSE 0 END),0) open_value
+                      FROM {$table}")->fetch();
+    return $r;
+}
+$L = side_stats('rec_ledger');
+$B = side_stats('rec_bank');
+$rules  = (int)$pdo->query("SELECT COUNT(*) FROM rec_rules WHERE active = 1")->fetchColumn();
+$draft  = $pdo->query("SELECT * FROM rec_runs WHERE status='draft' ORDER BY id DESC LIMIT 1")->fetch();
+$runs   = (int)$pdo->query("SELECT COUNT(*) FROM rec_runs WHERE status='finalised'")->fetchColumn();
+
+render_header();
+?>
+<h1>Bank Reconciliation</h1>
+<p class="muted">Match your ledger against your bank statement using a growing library of rules.</p>
+
+<div class="stats">
+  <div class="stat"><span class="muted small">Ledger items open</span><b><?= (int)$L['open'] ?></b>
+    <span class="num small <?= $L['open_value'] < 0 ? 'neg' : '' ?>"><?= money($L['open_value']) ?></span></div>
+  <div class="stat"><span class="muted small">Bank items open</span><b><?= (int)$B['open'] ?></b>
+    <span class="num small <?= $B['open_value'] < 0 ? 'neg' : '' ?>"><?= money($B['open_value']) ?></span></div>
+  <div class="stat"><span class="muted small">Difference</span>
+    <b class="<?= abs($L['open_value'] - $B['open_value']) < 0.005 ? 'pos' : 'neg' ?>">
+      <?= money($L['open_value'] - $B['open_value']) ?></b>
+    <span class="muted small">ledger less bank</span></div>
+  <div class="stat"><span class="muted small">Active rules</span><b><?= $rules ?></b>
+    <a class="small" href="rules.php">manage</a></div>
+  <div class="stat"><span class="muted small">Finalised runs</span><b><?= $runs ?></b>
+    <a class="small" href="runs.php">history</a></div>
+</div>
+
+<?php if ($draft): ?>
+<div class="panel">
+  <h2 style="margin-top:0">A run is waiting for you</h2>
+  <p><b><?= h($draft['run_ref']) ?></b> has suggested matches that have not been finalised yet.</p>
+  <a class="btn" href="review.php?run=<?= (int)$draft['id'] ?>">Review it</a>
+</div>
+<?php endif; ?>
+
+<div class="panel">
+  <h2 style="margin-top:0">How it works</h2>
+  <ol class="muted">
+    <li><a href="import.php">Import</a> your ledger file and your bank file.</li>
+    <li>Build <a href="rules.php">rules</a> - ledger criteria on the left, bank criteria on the right.</li>
+    <li>On the <a href="transactions.php">transactions</a> screen, press <b>Process</b> to apply every rule,
+        or tick items yourself for a manual match.</li>
+    <li>Review the suggestions, untick anything you disagree with, then <b>Finalise</b>.</li>
+    <li>Matched items drop off the transactions screen and are stamped with the rule and run reference.</li>
+  </ol>
+  <p class="small muted">A match is only ever made when both sides total exactly the same amount.</p>
+</div>
+<?php render_footer(); ?>

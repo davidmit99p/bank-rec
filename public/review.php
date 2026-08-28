@@ -1,0 +1,174 @@
+<?php
+// Step 6: review the suggestions, untick anything you disagree with, then finalise.
+require_once __DIR__ . '/../includes/layout.php';
+require_once __DIR__ . '/../includes/matcher.php';
+
+$pdo   = db();
+$runId = (int)($_GET['run'] ?? $_POST['run'] ?? 0);
+$st = $pdo->prepare("SELECT * FROM rec_runs WHERE id = ?");
+$st->execute([$runId]);
+$run = $st->fetch();
+if (!$run) { flash('That run could not be found.'); header('Location: runs.php'); exit; }
+
+$error = null;
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $run['status'] === 'draft') {
+    $action = $_POST['action'] ?? '';
+
+    if ($action === 'discard') {
+        $pdo->prepare("DELETE FROM rec_match_groups WHERE run_id = ?")->execute([$runId]);
+        $pdo->prepare("UPDATE rec_runs SET status='discarded' WHERE id = ?")->execute([$runId]);
+        flash('Run ' . $run['run_ref'] . ' discarded. Nothing was committed.');
+        header('Location: transactions.php');
+        exit;
+    }
+
+    // save the ticks first, whichever button was pressed
+    $keep = array_map('intval', $_POST['accept'] ?? []);
+    $pdo->prepare("UPDATE rec_match_groups SET accepted = 0 WHERE run_id = ?")->execute([$runId]);
+    if ($keep) {
+        $in = implode(',', array_fill(0, count($keep), '?'));
+        $pdo->prepare("UPDATE rec_match_groups SET accepted = 1 WHERE run_id = ? AND id IN ($in)")
+            ->execute(array_merge([$runId], $keep));
+    }
+    $pdo->prepare("UPDATE rec_runs SET note = ? WHERE id = ?")->execute([trim($_POST['note'] ?? ''), $runId]);
+
+    if ($action === 'finalise') {
+        [$ok, $msg] = finalise_run($runId);
+        if ($ok) { flash($msg . ' Run ' . $run['run_ref'] . ' is finalised.'); header('Location: transactions.php'); exit; }
+        $error = $msg;
+    } else {
+        flash('Ticks saved. Nothing has been committed yet.');
+        header('Location: review.php?run=' . $runId);
+        exit;
+    }
+}
+
+// load the suggestions with their lines
+$groups = $pdo->prepare("SELECT * FROM rec_match_groups WHERE run_id = ? ORDER BY rule_ref='manual', group_no");
+$groups->execute([$runId]);
+$groups = $groups->fetchAll();
+
+$lineSql = $pdo->prepare(
+    "SELECT l.side, l.txn_id, l.value,
+            COALESCE(le.txn_date, bk.txn_date)       AS txn_date,
+            COALESCE(le.description, bk.description) AS description
+     FROM rec_match_lines l
+     LEFT JOIN rec_ledger le ON l.side = 'ledger' AND le.id = l.txn_id
+     LEFT JOIN rec_bank   bk ON l.side = 'bank'   AND bk.id = l.txn_id
+     WHERE l.group_id = ? ORDER BY txn_date, l.txn_id");
+
+$byRule = [];
+foreach ($groups as $g) $byRule[$g['rule_ref']] = ($byRule[$g['rule_ref']] ?? 0) + 1;
+$accepted = array_sum(array_map(fn($g) => (int)$g['accepted'], $groups));
+
+render_header('Review ' . $run['run_ref']);
+?>
+<h1>4. Review <span class="tag"><?= h($run['run_ref']) ?></span></h1>
+
+<?php if ($error): ?><p class="flash" style="background:#fbeeee;border-color:#eccfcf;color:#a12f2f"><?= h($error) ?></p><?php endif; ?>
+
+<?php if ($run['status'] !== 'draft'): ?>
+  <p class="muted">This run was <b><?= h($run['status']) ?></b>
+     <?= $run['finalised_at'] ? 'on ' . h($run['finalised_at']) : '' ?>. It is shown here for the record.</p>
+<?php endif; ?>
+
+<div class="panel">
+  <p style="margin:0"><b><?= count($groups) ?></b> suggested match<?= count($groups) == 1 ? '' : 'es' ?>,
+     <b><?= $accepted ?></b> ticked.
+     <span class="muted small">
+     <?php foreach ($byRule as $ref => $n): ?>
+       &middot; <?= $ref === 'manual' ? 'manual' : 'rule ' . h($ref) ?>: <?= $n ?>
+     <?php endforeach; ?></span></p>
+</div>
+
+<?php if (!$groups): ?>
+  <div class="panel"><p class="muted">Nothing suggested in this run.
+    <a href="transactions.php">Back to transactions</a>.</p></div>
+<?php else: ?>
+
+<form method="post">
+  <input type="hidden" name="run" value="<?= $runId ?>">
+
+  <?php if ($run['status'] === 'draft'): ?>
+  <div class="panel" style="position:sticky;top:0;z-index:5;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
+    <button class="btn" type="submit" name="action" value="finalise"
+      onclick="return confirm('Commit the ticked matches? This writes the rule number and run reference to the records.')">
+      Finalise ticked matches</button>
+    <button class="btn ghost" type="submit" name="action" value="save">Save ticks for later</button>
+    <button class="btn ghost" type="button" onclick="setAll(true)">Tick all</button>
+    <button class="btn ghost" type="button" onclick="setAll(false)">Untick all</button>
+    <span class="balance" id="counter" style="margin-left:auto"></span>
+    <button class="btn ghost" type="submit" name="action" value="discard"
+      onclick="return confirm('Throw away this whole run? Nothing will be committed.')"
+      style="color:var(--bad);border-color:var(--bad)">Discard run</button>
+  </div>
+  <?php endif; ?>
+
+  <?php foreach ($groups as $g):
+      $lineSql->execute([$g['id']]);
+      $lines = $lineSql->fetchAll();
+      $ok = group_balances($g['ledger_total'], $g['bank_total'], $g['sign_mode']);
+  ?>
+  <div class="group-card<?= $g['accepted'] ? '' : ' off' ?>" id="g<?= (int)$g['id'] ?>">
+    <header>
+      <?php if ($run['status'] === 'draft'): ?>
+        <input type="checkbox" name="accept[]" value="<?= (int)$g['id'] ?>" class="acc"
+               <?= $g['accepted'] ? 'checked' : '' ?> style="width:auto">
+      <?php endif; ?>
+      <span class="tag <?= $g['rule_ref'] === 'manual' ? 'manual' : '' ?>">
+        <?= $g['rule_ref'] === 'manual' ? 'Manual' : 'Rule ' . h($g['rule_ref']) ?></span>
+      <b>Match <?= (int)$g['group_no'] ?></b>
+      <span class="muted small"><?= h($g['rule_name']) ?></span>
+      <span style="margin-left:auto" class="balance <?= $ok ? 'ok' : 'off' ?>">
+        <?= money($g['ledger_total']) ?>
+        <?= $g['sign_mode'] === 'opposite' ? 'against' : '=' ?>
+        <?= money($g['bank_total']) ?>
+        <?= $ok ? '' : ' - does not balance' ?>
+      </span>
+    </header>
+    <div class="sides">
+      <?php foreach (['ledger' => 'Ledger', 'bank' => 'Bank'] as $side => $label):
+          $sideLines = array_values(array_filter($lines, fn($l) => $l['side'] === $side)); ?>
+      <div>
+        <span class="muted small"><?= $label ?></span>
+        <table>
+          <?php foreach ($sideLines as $l): ?>
+          <tr><td class="small" style="width:6rem"><?= h($l['txn_date']) ?></td>
+              <td class="desc" title="<?= h($l['description']) ?>"><?= h($l['description']) ?></td>
+              <td class="num <?= $l['value'] < 0 ? 'neg' : '' ?>"><?= money($l['value']) ?></td></tr>
+          <?php endforeach; ?>
+        </table>
+      </div>
+      <?php endforeach; ?>
+    </div>
+  </div>
+  <?php endforeach; ?>
+
+  <?php if ($run['status'] === 'draft'): ?>
+  <div class="panel">
+    <label>Note for this run (optional)</label>
+    <input type="text" name="note" value="<?= h($run['note']) ?>" placeholder="e.g. January 2019 reconciliation">
+  </div>
+  <?php endif; ?>
+</form>
+
+<script>
+function setAll(on) {
+  document.querySelectorAll('.acc').forEach(function (c) { c.checked = on; });
+  refresh();
+}
+function refresh() {
+  var boxes = document.querySelectorAll('.acc'), n = 0;
+  boxes.forEach(function (c) {
+    if (c.checked) n++;
+    c.closest('.group-card').classList.toggle('off', !c.checked);
+  });
+  var el = document.getElementById('counter');
+  if (el) el.textContent = n + ' of ' + boxes.length + ' ticked';
+}
+document.addEventListener('change', function (e) { if (e.target.classList.contains('acc')) refresh(); });
+refresh();
+</script>
+<?php endif; ?>
+<?php render_footer(); ?>
