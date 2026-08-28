@@ -9,7 +9,7 @@
 return [
     'db' => [
         'host'    => '127.0.0.1',        // Plesk MariaDB is usually localhost
-        'name'    => 'entigy_demo',      // the database that holds the rec_ tables
+        'name'    => 'entigy_recon',     // the database that holds the rec_ tables
         'user'    => 'CHANGE_ME',        // database user
         'pass'    => 'CHANGE_ME',        // that user's password
         'charset' => 'utf8mb4',
