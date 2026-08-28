@@ -20,7 +20,7 @@ Then create a user for it, on the same screen:
 | Field | What to put |
 | --- | --- |
 | Database user name | `entigy_recon_user` |
-| Password | click **Generate**, then copy it somewhere safe |
+| Password | type your own, **letters and numbers only** - see the warning below |
 | Access control | **Allow local connections only** |
 
 Two things to be deliberate about:
@@ -29,6 +29,10 @@ Two things to be deliberate about:
   compromised, the other is untouched.
 - **Local connections only.** Nothing outside the server ever needs to reach
   this database directly.
+- **Do not use Plesk's Generate button for the password.** When the Accountant
+  Toolkit was deployed, a generated password containing special characters
+  caused "Access denied for user ... @localhost" and took a while to find. Use
+  a long password made only of letters and numbers.
 
 You will need three things later: the database name, the user name and that
 password. The password never needs to be typed into a chat or committed to
@@ -107,3 +111,8 @@ not been done, or the file is in the wrong place.
 
 If you get a blank page or a 500 error, the usual causes are a wrong password
 in `config.php`, or the tables not having been created in step 2.
+
+If you get **"Class PDO not found"**, the `pdo_mysql` PHP extension is not
+enabled for this domain. It was switched on for `davidmitchell.me.uk` when the
+Accountant Toolkit went live, but it may not be server-wide. Your host has to
+enable it - no code change is needed.
