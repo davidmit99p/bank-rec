@@ -1,3 +1,4 @@
 includes/config.php
 storage/uploads/*
 !storage/uploads/.gitkeep
+!storage/uploads/.htaccess
