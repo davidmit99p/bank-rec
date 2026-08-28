@@ -1,0 +1,22 @@
+# Only needed when the app is installed INSIDE a web folder, because there is
+# no spare domain to point a document root at public/.
+#
+# It sends every web request into public/, so the address is /recon/ rather
+# than /recon/public/ - and, just as importantly, a request for something
+# private like /recon/includes/config.php is rewritten to public/includes/...
+# which does not exist, so it cannot be served.
+#
+# Harmless when the document root already points at public/: this file is
+# then above the web root and never read.
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # anything already aimed at public/ is left alone
+    RewriteRule ^public/ - [L]
+
+    # everything else goes into public/
+    RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>
+
+# Never list the contents of a folder.
+Options -Indexes
