@@ -1,4 +1,5 @@
 includes/config.php
+bank-rec-config.php
 storage/uploads/*
 !storage/uploads/.gitkeep
 !storage/uploads/.htaccess

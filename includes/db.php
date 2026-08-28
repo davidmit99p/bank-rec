@@ -1,16 +1,35 @@
 <?php
 // Loads config and gives us a single database connection to reuse.
 
+// Where the config file may live, in the order we look for it.
+//
+// Normally it sits in this folder, and the document root points at public/ so
+// nobody on the web can reach it. If the app has to be installed INSIDE a web
+// folder instead, put the config somewhere above that folder and it will be
+// found here - the password then never sits anywhere the web can serve.
+function config_paths()
+{
+    $paths = [];
+    if ($env = getenv('BANKREC_CONFIG')) $paths[] = $env;
+    $paths[] = __DIR__ . '/config.php';                       // the usual place
+    $paths[] = dirname(__DIR__, 2) . '/bank-rec-config.php';  // one level above the app
+    $paths[] = dirname(__DIR__, 3) . '/bank-rec-config.php';  // two levels above
+    return $paths;
+}
+
 function config($key = null)
 {
     static $config;
     if ($config === null) {
-        $path = __DIR__ . '/config.php';
-        if (!file_exists($path)) {
+        $found = null;
+        foreach (config_paths() as $path) {
+            if ($path && file_exists($path)) { $found = $path; break; }
+        }
+        if ($found === null) {
             http_response_code(500);
             exit('Setup needed: copy includes/config.sample.php to includes/config.php and fill in your database details.');
         }
-        $config = require $path;
+        $config = require $found;
     }
     return $key === null ? $config : ($config[$key] ?? null);
 }

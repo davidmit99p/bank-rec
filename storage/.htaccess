@@ -1,0 +1,10 @@
+# Nothing in this folder should ever be served over the web.
+# Normally the document root points at public/ so this is unreachable anyway;
+# this is a second line of defence for installs inside a web folder.
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>
