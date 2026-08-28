@@ -3,13 +3,13 @@
 // SETUP: copy this file to "config.php" (same folder) and fill in your details.
 //   The real config.php is NOT committed to GitHub (it holds your password).
 //
-//   All tables are named rec_something, so it is safe to point this at a
-//   database you already use - e.g. entigy_demo.
+//   This tool has its own database (entigy_recon) rather than sharing one -
+//   it holds real bank and ledger data.
 // -----------------------------------------------------------------------------
 return [
     'db' => [
         'host'    => '127.0.0.1',        // Plesk MariaDB is usually localhost
-        'name'    => 'entigy_recon',     // the database that holds the rec_ tables
+        'name'    => 'entigy_recon',     // the database created for this tool
         'user'    => 'CHANGE_ME',        // database user
         'pass'    => 'CHANGE_ME',        // that user's password
         'charset' => 'utf8mb4',

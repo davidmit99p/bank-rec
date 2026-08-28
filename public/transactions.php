@@ -9,12 +9,12 @@ $pdo = db();
 function current_draft($create = false)
 {
     $pdo = db();
-    $r = $pdo->query("SELECT * FROM rec_runs WHERE status='draft' ORDER BY id DESC LIMIT 1")->fetch();
+    $r = $pdo->query("SELECT * FROM runs WHERE status='draft' ORDER BY id DESC LIMIT 1")->fetch();
     if ($r || !$create) return $r ?: null;
     $ref = make_run_ref();
-    $pdo->prepare("INSERT INTO rec_runs (run_ref) VALUES (?)")->execute([$ref]);
+    $pdo->prepare("INSERT INTO runs (run_ref) VALUES (?)")->execute([$ref]);
     $id = $pdo->lastInsertId();
-    return $pdo->query("SELECT * FROM rec_runs WHERE id = " . (int)$id)->fetch();
+    return $pdo->query("SELECT * FROM runs WHERE id = " . (int)$id)->fetch();
 }
 
 $error = null;
@@ -44,8 +44,8 @@ if (($_POST['action'] ?? '') === 'manual') {
             $st->execute($ids);
             return $st->fetchAll();
         };
-        $lRows = $fetch('rec_ledger', $lIds);
-        $bRows = $fetch('rec_bank',   $bIds);
+        $lRows = $fetch('ledger', $lIds);
+        $bRows = $fetch('bank',   $bIds);
         if (count($lRows) !== count($lIds) || count($bRows) !== count($bIds)) {
             throw new RuntimeException('Some of those items have already been matched. Refresh and try again.');
         }
@@ -65,14 +65,14 @@ if (($_POST['action'] ?? '') === 'manual') {
         foreach ($lRows as $r) if (isset($usedL[$r['id']])) throw new RuntimeException('A ledger item is already in this run.');
         foreach ($bRows as $r) if (isset($usedB[$r['id']])) throw new RuntimeException('A bank item is already in this run.');
 
-        $groupNo = 1 + (int)$pdo->query("SELECT COALESCE(MAX(group_no),0) FROM rec_match_groups
+        $groupNo = 1 + (int)$pdo->query("SELECT COALESCE(MAX(group_no),0) FROM match_groups
                                          WHERE run_id = " . (int)$run['id'])->fetchColumn();
-        $pdo->prepare("INSERT INTO rec_match_groups
+        $pdo->prepare("INSERT INTO match_groups
             (run_id, group_no, rule_ref, rule_name, ledger_total, bank_total, sign_mode, accepted)
             VALUES (?,?,'manual','Manual match',?,?,'same',1)")
             ->execute([$run['id'], $groupNo, $lTot, $bTot]);
         $gid = $pdo->lastInsertId();
-        $ins = $pdo->prepare("INSERT INTO rec_match_lines (group_id, side, txn_id, value) VALUES (?,?,?,?)");
+        $ins = $pdo->prepare("INSERT INTO match_lines (group_id, side, txn_id, value) VALUES (?,?,?,?)");
         foreach ($lRows as $r) $ins->execute([$gid, 'ledger', $r['id'], $r['value']]);
         foreach ($bRows as $r) $ins->execute([$gid, 'bank',   $r['id'], $r['value']]);
 
@@ -108,11 +108,11 @@ $draft = current_draft();
 $claimL = $draft ? array_keys(ids_used_in_run($draft['id'], 'ledger')) : [];
 $claimB = $draft ? array_keys(ids_used_in_run($draft['id'], 'bank'))   : [];
 
-$ledger = open_items('rec_ledger', $q, $from, $to, $claimL);
-$bank   = open_items('rec_bank',   $q, $from, $to, $claimB);
+$ledger = open_items('ledger', $q, $from, $to, $claimL);
+$bank   = open_items('bank',   $q, $from, $to, $claimB);
 $lTot   = array_sum(array_map(fn($r) => (float)$r['value'], $ledger));
 $bTot   = array_sum(array_map(fn($r) => (float)$r['value'], $bank));
-$rules  = (int)$pdo->query("SELECT COUNT(*) FROM rec_rules WHERE active = 1")->fetchColumn();
+$rules  = (int)$pdo->query("SELECT COUNT(*) FROM rules WHERE active = 1")->fetchColumn();
 
 render_header('Transactions');
 ?>
@@ -125,7 +125,7 @@ both sides and match them yourself.</p>
 <?php if ($draft): ?>
 <div class="panel" style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap">
   <b>Run <?= h($draft['run_ref']) ?> is open</b>
-  <span class="muted small"><?= (int)$pdo->query("SELECT COUNT(*) FROM rec_match_groups WHERE run_id=" . (int)$draft['id'])->fetchColumn() ?>
+  <span class="muted small"><?= (int)$pdo->query("SELECT COUNT(*) FROM match_groups WHERE run_id=" . (int)$draft['id'])->fetchColumn() ?>
     suggested matches waiting</span>
   <a class="btn" style="margin-left:auto" href="review.php?run=<?= (int)$draft['id'] ?>">Review &amp; finalise</a>
 </div>

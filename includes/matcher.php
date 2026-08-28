@@ -137,7 +137,7 @@ function days_apart($d1, $d2)
 // Everything not yet finalised as matched.
 function load_open($side)
 {
-    $table = $side === 'ledger' ? 'rec_ledger' : 'rec_bank';
+    $table = $side === 'ledger' ? 'ledger' : 'bank';
     return db()->query("SELECT id, txn_date, description, value FROM {$table}
                         WHERE matched_at IS NULL ORDER BY txn_date, id")->fetchAll();
 }
@@ -145,8 +145,8 @@ function load_open($side)
 // Transactions already spoken for by suggestions in this draft run.
 function ids_used_in_run($runId, $side)
 {
-    $st = db()->prepare("SELECT l.txn_id FROM rec_match_lines l
-                         JOIN rec_match_groups g ON g.id = l.group_id
+    $st = db()->prepare("SELECT l.txn_id FROM match_lines l
+                         JOIN match_groups g ON g.id = l.group_id
                          WHERE g.run_id = ? AND l.side = ?");
     $st->execute([$runId, $side]);
     return array_flip(array_column($st->fetchAll(), 'txn_id'));
@@ -237,20 +237,20 @@ function find_combination(array $pool, array $used, $target, $anchorDate, $tol,
 function run_rules($runId)
 {
     $pdo   = db();
-    $rules = $pdo->query("SELECT * FROM rec_rules WHERE active = 1 ORDER BY sort_order, id")->fetchAll();
+    $rules = $pdo->query("SELECT * FROM rules WHERE active = 1 ORDER BY sort_order, id")->fetchAll();
 
     $ledger = load_open('ledger');
     $bank   = load_open('bank');
     $usedL  = ids_used_in_run($runId, 'ledger');   // respects manual matches already ticked in
     $usedB  = ids_used_in_run($runId, 'bank');
 
-    $groupNo = (int)$pdo->query("SELECT COALESCE(MAX(group_no),0) FROM rec_match_groups
+    $groupNo = (int)$pdo->query("SELECT COALESCE(MAX(group_no),0) FROM match_groups
                                  WHERE run_id = " . (int)$runId)->fetchColumn();
 
-    $insG = $pdo->prepare("INSERT INTO rec_match_groups
+    $insG = $pdo->prepare("INSERT INTO match_groups
         (run_id, group_no, rule_ref, rule_name, ledger_total, bank_total, sign_mode, accepted)
         VALUES (?,?,?,?,?,?,?,1)");
-    $insL = $pdo->prepare("INSERT INTO rec_match_lines (group_id, side, txn_id, value) VALUES (?,?,?,?)");
+    $insL = $pdo->prepare("INSERT INTO match_lines (group_id, side, txn_id, value) VALUES (?,?,?,?)");
 
     $perRule = [];
     foreach ($rules as $rule) {
@@ -335,13 +335,13 @@ function finalise_run($runId)
 {
     $pdo = db();
 
-    $run = $pdo->prepare("SELECT * FROM rec_runs WHERE id = ?");
+    $run = $pdo->prepare("SELECT * FROM runs WHERE id = ?");
     $run->execute([$runId]);
     $run = $run->fetch();
     if (!$run)                          return [false, 'That run no longer exists.'];
     if ($run['status'] === 'finalised') return [false, 'That run has already been finalised.'];
 
-    $st = $pdo->prepare("SELECT * FROM rec_match_groups WHERE run_id = ? AND accepted = 1 ORDER BY group_no");
+    $st = $pdo->prepare("SELECT * FROM match_groups WHERE run_id = ? AND accepted = 1 ORDER BY group_no");
     $st->execute([$runId]);
     $groups = $st->fetchAll();
     if (!$groups) return [false, 'There is nothing ticked to finalise.'];
@@ -357,10 +357,10 @@ function finalise_run($runId)
 
     $pdo->beginTransaction();
     try {
-        $lines = $pdo->prepare("SELECT side, txn_id FROM rec_match_lines WHERE group_id = ?");
-        $upL = $pdo->prepare("UPDATE rec_ledger SET run_id=?, rule_ref=?, group_no=?, matched_at=NOW()
+        $lines = $pdo->prepare("SELECT side, txn_id FROM match_lines WHERE group_id = ?");
+        $upL = $pdo->prepare("UPDATE ledger SET run_id=?, rule_ref=?, group_no=?, matched_at=NOW()
                               WHERE id=? AND matched_at IS NULL");
-        $upB = $pdo->prepare("UPDATE rec_bank   SET run_id=?, rule_ref=?, group_no=?, matched_at=NOW()
+        $upB = $pdo->prepare("UPDATE bank   SET run_id=?, rule_ref=?, group_no=?, matched_at=NOW()
                               WHERE id=? AND matched_at IS NULL");
         $count = 0;
         foreach ($groups as $g) {
@@ -372,8 +372,8 @@ function finalise_run($runId)
             }
         }
         // Anything unticked is thrown away, so those items come back as open.
-        $pdo->prepare("DELETE FROM rec_match_groups WHERE run_id = ? AND accepted = 0")->execute([$runId]);
-        $pdo->prepare("UPDATE rec_runs SET status='finalised', finalised_at=NOW() WHERE id=?")->execute([$runId]);
+        $pdo->prepare("DELETE FROM match_groups WHERE run_id = ? AND accepted = 0")->execute([$runId]);
+        $pdo->prepare("UPDATE runs SET status='finalised', finalised_at=NOW() WHERE id=?")->execute([$runId]);
         $pdo->commit();
         return [true, count($groups) . " matches committed, covering {$count} transactions."];
     } catch (Throwable $e) {

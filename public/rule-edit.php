@@ -8,7 +8,7 @@ $id   = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 $rule = null;
 
 if ($id) {
-    $st = db()->prepare("SELECT * FROM rec_rules WHERE id = ?");
+    $st = db()->prepare("SELECT * FROM rules WHERE id = ?");
     $st->execute([$id]);
     $rule = $st->fetch();
     if (!$rule) { flash('That rule no longer exists.'); header('Location: rules.php'); exit; }
@@ -53,11 +53,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $names = array_keys($vals);
     if ($id) {
         $set = implode(', ', array_map(fn($c) => "$c = :$c", $names));
-        $st = db()->prepare("UPDATE rec_rules SET $set WHERE id = :id");
+        $st = db()->prepare("UPDATE rules SET $set WHERE id = :id");
         $st->execute($vals + ['id' => $id]);
         flash("Rule {$id} saved.");
     } else {
-        $st = db()->prepare("INSERT INTO rec_rules (" . implode(',', $names) . ")
+        $st = db()->prepare("INSERT INTO rules (" . implode(',', $names) . ")
                              VALUES (:" . implode(', :', $names) . ")");
         $st->execute($vals);
         flash('Rule ' . db()->lastInsertId() . ' created.');

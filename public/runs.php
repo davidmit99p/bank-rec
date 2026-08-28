@@ -9,10 +9,10 @@ $pdo = db();
 if (($_POST['action'] ?? '') === 'unmatch') {
     $runId = (int)$_POST['run'];
     $pdo->beginTransaction();
-    $pdo->prepare("UPDATE rec_ledger SET run_id=NULL, rule_ref=NULL, group_no=NULL, matched_at=NULL WHERE run_id=?")->execute([$runId]);
-    $pdo->prepare("UPDATE rec_bank   SET run_id=NULL, rule_ref=NULL, group_no=NULL, matched_at=NULL WHERE run_id=?")->execute([$runId]);
-    $pdo->prepare("DELETE FROM rec_match_groups WHERE run_id=?")->execute([$runId]);
-    $pdo->prepare("UPDATE rec_runs SET status='discarded' WHERE id=?")->execute([$runId]);
+    $pdo->prepare("UPDATE ledger SET run_id=NULL, rule_ref=NULL, group_no=NULL, matched_at=NULL WHERE run_id=?")->execute([$runId]);
+    $pdo->prepare("UPDATE bank   SET run_id=NULL, rule_ref=NULL, group_no=NULL, matched_at=NULL WHERE run_id=?")->execute([$runId]);
+    $pdo->prepare("DELETE FROM match_groups WHERE run_id=?")->execute([$runId]);
+    $pdo->prepare("UPDATE runs SET status='discarded' WHERE id=?")->execute([$runId]);
     $pdo->commit();
     flash('Run unpicked. Those transactions are open again.');
     header('Location: runs.php');
@@ -21,11 +21,11 @@ if (($_POST['action'] ?? '') === 'unmatch') {
 
 $runs = $pdo->query(
     "SELECT r.*,
-            (SELECT COUNT(*) FROM rec_match_groups g WHERE g.run_id = r.id) groups_n,
-            (SELECT COUNT(*) FROM rec_ledger  t WHERE t.run_id = r.id) ledger_n,
-            (SELECT COUNT(*) FROM rec_bank    t WHERE t.run_id = r.id) bank_n,
-            (SELECT COALESCE(SUM(t.value),0) FROM rec_ledger t WHERE t.run_id = r.id) ledger_v
-     FROM rec_runs r ORDER BY r.id DESC")->fetchAll();
+            (SELECT COUNT(*) FROM match_groups g WHERE g.run_id = r.id) groups_n,
+            (SELECT COUNT(*) FROM ledger  t WHERE t.run_id = r.id) ledger_n,
+            (SELECT COUNT(*) FROM bank    t WHERE t.run_id = r.id) bank_n,
+            (SELECT COALESCE(SUM(t.value),0) FROM ledger t WHERE t.run_id = r.id) ledger_v
+     FROM runs r ORDER BY r.id DESC")->fetchAll();
 
 render_header('Runs');
 ?>
@@ -65,9 +65,9 @@ rule number that matched it, so you can always see why something was matched.</p
 
 <h2>Matched transactions</h2>
 <?php
-$matchedL = $pdo->query("SELECT t.*, r.run_ref FROM rec_ledger t LEFT JOIN rec_runs r ON r.id = t.run_id
+$matchedL = $pdo->query("SELECT t.*, r.run_ref FROM ledger t LEFT JOIN runs r ON r.id = t.run_id
                          WHERE t.matched_at IS NOT NULL ORDER BY t.matched_at DESC, t.id DESC LIMIT 300")->fetchAll();
-$matchedB = $pdo->query("SELECT t.*, r.run_ref FROM rec_bank t LEFT JOIN rec_runs r ON r.id = t.run_id
+$matchedB = $pdo->query("SELECT t.*, r.run_ref FROM bank t LEFT JOIN runs r ON r.id = t.run_id
                          WHERE t.matched_at IS NOT NULL ORDER BY t.matched_at DESC, t.id DESC LIMIT 300")->fetchAll();
 ?>
 <div class="sides">

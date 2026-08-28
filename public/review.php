@@ -5,7 +5,7 @@ require_once __DIR__ . '/../includes/matcher.php';
 
 $pdo   = db();
 $runId = (int)($_GET['run'] ?? $_POST['run'] ?? 0);
-$st = $pdo->prepare("SELECT * FROM rec_runs WHERE id = ?");
+$st = $pdo->prepare("SELECT * FROM runs WHERE id = ?");
 $st->execute([$runId]);
 $run = $st->fetch();
 if (!$run) { flash('That run could not be found.'); header('Location: runs.php'); exit; }
@@ -16,8 +16,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $run['status'] === 'draft') {
     $action = $_POST['action'] ?? '';
 
     if ($action === 'discard') {
-        $pdo->prepare("DELETE FROM rec_match_groups WHERE run_id = ?")->execute([$runId]);
-        $pdo->prepare("UPDATE rec_runs SET status='discarded' WHERE id = ?")->execute([$runId]);
+        $pdo->prepare("DELETE FROM match_groups WHERE run_id = ?")->execute([$runId]);
+        $pdo->prepare("UPDATE runs SET status='discarded' WHERE id = ?")->execute([$runId]);
         flash('Run ' . $run['run_ref'] . ' discarded. Nothing was committed.');
         header('Location: transactions.php');
         exit;
@@ -25,13 +25,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $run['status'] === 'draft') {
 
     // save the ticks first, whichever button was pressed
     $keep = array_map('intval', $_POST['accept'] ?? []);
-    $pdo->prepare("UPDATE rec_match_groups SET accepted = 0 WHERE run_id = ?")->execute([$runId]);
+    $pdo->prepare("UPDATE match_groups SET accepted = 0 WHERE run_id = ?")->execute([$runId]);
     if ($keep) {
         $in = implode(',', array_fill(0, count($keep), '?'));
-        $pdo->prepare("UPDATE rec_match_groups SET accepted = 1 WHERE run_id = ? AND id IN ($in)")
+        $pdo->prepare("UPDATE match_groups SET accepted = 1 WHERE run_id = ? AND id IN ($in)")
             ->execute(array_merge([$runId], $keep));
     }
-    $pdo->prepare("UPDATE rec_runs SET note = ? WHERE id = ?")->execute([trim($_POST['note'] ?? ''), $runId]);
+    $pdo->prepare("UPDATE runs SET note = ? WHERE id = ?")->execute([trim($_POST['note'] ?? ''), $runId]);
 
     if ($action === 'finalise') {
         [$ok, $msg] = finalise_run($runId);
@@ -45,7 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $run['status'] === 'draft') {
 }
 
 // load the suggestions with their lines
-$groups = $pdo->prepare("SELECT * FROM rec_match_groups WHERE run_id = ? ORDER BY rule_ref='manual', group_no");
+$groups = $pdo->prepare("SELECT * FROM match_groups WHERE run_id = ? ORDER BY rule_ref='manual', group_no");
 $groups->execute([$runId]);
 $groups = $groups->fetchAll();
 
@@ -53,9 +53,9 @@ $lineSql = $pdo->prepare(
     "SELECT l.side, l.txn_id, l.value,
             COALESCE(le.txn_date, bk.txn_date)       AS txn_date,
             COALESCE(le.description, bk.description) AS description
-     FROM rec_match_lines l
-     LEFT JOIN rec_ledger le ON l.side = 'ledger' AND le.id = l.txn_id
-     LEFT JOIN rec_bank   bk ON l.side = 'bank'   AND bk.id = l.txn_id
+     FROM match_lines l
+     LEFT JOIN ledger le ON l.side = 'ledger' AND le.id = l.txn_id
+     LEFT JOIN bank   bk ON l.side = 'bank'   AND bk.id = l.txn_id
      WHERE l.group_id = ? ORDER BY txn_date, l.txn_id");
 
 $byRule = [];

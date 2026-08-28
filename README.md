@@ -3,8 +3,8 @@
 Matches a file of ledger transactions against a file of bank transactions,
 using a library of rules that grows over time.
 
-Plain PHP and MariaDB, no frameworks and no build step. Every table is named
-`rec_something`, so it is safe to install into a database you already use.
+Plain PHP and MariaDB, no frameworks and no build step. It expects its own
+database - `entigy_recon` - because it holds real bank and ledger data.
 
 ## The golden rule
 
@@ -111,9 +111,9 @@ tools/dry_run.php            try rules against two files, no database needed
 
 | Table | Holds |
 | --- | --- |
-| `rec_ledger` | table 1 - the ledger transactions |
-| `rec_bank` | table 2 - the bank transactions |
-| `rec_rules` | the rule library, one row per rule |
-| `rec_runs` | one row per matching run |
-| `rec_match_groups` | one suggested or committed match |
-| `rec_match_lines` | the individual transactions inside a match |
+| `ledger` | table 1 - the ledger transactions |
+| `bank` | table 2 - the bank transactions |
+| `rules` | the rule library, one row per rule |
+| `runs` | one row per matching run |
+| `match_groups` | one suggested or committed match |
+| `match_lines` | the individual transactions inside a match |
