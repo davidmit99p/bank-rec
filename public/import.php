@@ -63,7 +63,7 @@ try {
     // --- clearing a table ----------------------------------------------------
     if (($_POST['stage'] ?? '') === 'clear') {
         $side  = ($_POST['side'] ?? '') === 'bank' ? 'bank' : 'ledger';
-        $table = $side === 'ledger' ? 'ledger' : 'bank';
+        $table = $side === 'ledger' ? 'rec_ledger' : 'rec_bank';
         $open  = (int)db()->query("SELECT COUNT(*) FROM {$table} WHERE matched_at IS NULL")->fetchColumn();
         db()->exec("DELETE FROM {$table} WHERE matched_at IS NULL");
         flash("Removed {$open} unmatched {$side} transactions. Matched history was left alone.");
@@ -75,8 +75,8 @@ try {
 }
 
 $counts = [
-    'ledger' => db()->query("SELECT COUNT(*) c, SUM(matched_at IS NULL) o FROM ledger")->fetch(),
-    'bank'   => db()->query("SELECT COUNT(*) c, SUM(matched_at IS NULL) o FROM bank")->fetch(),
+    'ledger' => db()->query("SELECT COUNT(*) c, SUM(matched_at IS NULL) o FROM rec_ledger")->fetch(),
+    'bank'   => db()->query("SELECT COUNT(*) c, SUM(matched_at IS NULL) o FROM rec_bank")->fetch(),
 ];
 
 render_header('Import');

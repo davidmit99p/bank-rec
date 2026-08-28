@@ -7,7 +7,7 @@
 -- loosest last. Add your own rules above or below these as you go.
 -- ---------------------------------------------------------------------------
 
-INSERT INTO rules
+INSERT INTO rec_rules
   (name, active, sort_order, date_tol, sign_mode, grouping, max_group, link_desc, notes)
 VALUES
   ('Same day, same amount, wording agrees',

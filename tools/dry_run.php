@@ -31,7 +31,7 @@ function load($path)
     return $out;
 }
 
-// The rules to try. Same shape as a row of rules.
+// The rules to try. Same shape as a row of rec_rules.
 function rule(array $over)
 {
     $base = ['id' => 0, 'name' => '', 'date_tol' => 3, 'sign_mode' => 'same',

@@ -237,7 +237,7 @@ function build_transactions(array $rows, array $map, $skipFirst)
 
 function insert_transactions($side, array $rows, $sourceFile)
 {
-    $table = $side === 'ledger' ? 'ledger' : 'bank';
+    $table = $side === 'ledger' ? 'rec_ledger' : 'rec_bank';
     $pdo = db();
     $st = $pdo->prepare("INSERT INTO {$table} (txn_date, description, value, source_file)
                          VALUES (?,?,?,?)");

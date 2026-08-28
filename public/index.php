@@ -10,11 +10,11 @@ function side_stats($table)
                       FROM {$table}")->fetch();
     return $r;
 }
-$L = side_stats('ledger');
-$B = side_stats('bank');
-$rules  = (int)$pdo->query("SELECT COUNT(*) FROM rules WHERE active = 1")->fetchColumn();
-$draft  = $pdo->query("SELECT * FROM runs WHERE status='draft' ORDER BY id DESC LIMIT 1")->fetch();
-$runs   = (int)$pdo->query("SELECT COUNT(*) FROM runs WHERE status='finalised'")->fetchColumn();
+$L = side_stats('rec_ledger');
+$B = side_stats('rec_bank');
+$rules  = (int)$pdo->query("SELECT COUNT(*) FROM rec_rules WHERE active = 1")->fetchColumn();
+$draft  = $pdo->query("SELECT * FROM rec_runs WHERE status='draft' ORDER BY id DESC LIMIT 1")->fetch();
+$runs   = (int)$pdo->query("SELECT COUNT(*) FROM rec_runs WHERE status='finalised'")->fetchColumn();
 
 render_header();
 ?>

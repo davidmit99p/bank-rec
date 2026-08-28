@@ -1,100 +1,108 @@
 # Putting this live on Plesk
 
-Five steps. Do them in order. Steps 1 and 2 are the ones to do now; the rest
-need the code on the server first.
+Written for the actual setup we settled on: a subdomain of
+`davidmitchell.me.uk`, sharing the Accountant Toolkit's database, protected by
+the same kind of Basic authentication.
+
+That combination was chosen for one reason - **nothing in it depends on anyone
+else**. No new database (the subscription is at its limit), no new PHP
+extension (`pdo_mysql` is already working on this subscription), no host
+involvement.
 
 ---
 
-## 1. Create the database
+## 1. Create the tables
 
-Plesk → **Databases** → **Add Database**
+No new database is needed. The six tables all start with `rec_`, so they sit
+alongside the Toolkit's own `saved_items`, `emails` and `email_attachments`
+without touching them.
 
-| Field | What to put |
-| --- | --- |
-| Database name | `entigy_recon` |
-| Type | MySQL / MariaDB (whichever Plesk offers) |
-| Related site | the domain this tool will live on |
+Plesk → **Databases** → `accountant_toolkit` → **phpMyAdmin**
 
-Then create a user for it, on the same screen:
-
-| Field | What to put |
-| --- | --- |
-| Database user name | `entigy_recon_user` |
-| Password | type your own, **letters and numbers only** - see the warning below |
-| Access control | **Allow local connections only** |
-
-Two things to be deliberate about:
-
-- **Give it its own user.** Don't reuse `entigy_demo_api`. If one is ever
-  compromised, the other is untouched.
-- **Local connections only.** Nothing outside the server ever needs to reach
-  this database directly.
-- **Do not use Plesk's Generate button for the password.** When the Accountant
-  Toolkit was deployed, a generated password containing special characters
-  caused "Access denied for user ... @localhost" and took a while to find. Use
-  a long password made only of letters and numbers.
-
-You will need three things later: the database name, the user name and that
-password. The password never needs to be typed into a chat or committed to
-GitHub - it only ever goes into one file on the server.
-
----
-
-## 2. Create the tables
-
-Plesk → **Databases** → find `entigy_recon` → **phpMyAdmin**
-
-1. Make sure `entigy_recon` is selected on the left.
+1. Make sure `accountant_toolkit` is selected on the left.
 2. Click the **SQL** tab.
 3. Paste the whole of `sql/schema.sql` and press **Go**.
 
-You should end up with six tables: `ledger`, `bank`, `rules`, `runs`,
-`match_groups`, `match_lines`.
+You should now see six new tables: `rec_ledger`, `rec_bank`, `rec_rules`,
+`rec_runs`, `rec_match_groups`, `rec_match_lines`.
 
-Optionally repeat with `sql/starter_rules.sql` to load six ready-made rules.
-You can always delete them and write your own.
+Optionally repeat with `sql/starter_rules.sql` for six ready-made rules. You
+can delete them and write your own later.
+
+---
+
+## 2. Add the subdomain
+
+Plesk → **Websites & Domains** → **Add Subdomain**
+
+| Field | What to put |
+| --- | --- |
+| Subdomain name | `recon` |
+| Parent domain | `davidmitchell.me.uk` |
+
+Then issue an SSL certificate for it - Plesk's Let's Encrypt button. Basic
+authentication sends the password on every request, so it must be over HTTPS.
 
 ---
 
 ## 3. Get the code onto the server
 
-Plesk → **Websites & Domains** → your domain → **Git**
+Plesk → **Websites & Domains** → `recon.davidmitchell.me.uk` → **Git**
 
-Point it at the GitHub repository. Plesk can pull on demand, or automatically
-every time you push, using the webhook it gives you.
-
----
-
-## 4. Point the domain at the `public` folder
-
-Plesk → **Websites & Domains** → your domain → **Hosting Settings** →
-**Document root**
-
-Set it to the `public` folder inside wherever the repository was deployed.
-
-This matters. It is what keeps `includes/config.php` - which holds your
-database password - and the `storage/uploads` scratch folder unreachable from
-the web. If the document root points at the top of the repository instead,
-both are exposed.
+Point it at the GitHub repository, the same way the Toolkit is set up. Turn on
+automatic deployment and add the webhook to GitHub, so pushes go live on their
+own.
 
 ---
 
-## 5. Create the config file on the server
+## 4. Point the document root at `public`
 
-Plesk → **Files** → navigate to the `includes` folder.
+Plesk → **Websites & Domains** → `recon.davidmitchell.me.uk` →
+**Hosting Settings** → **Document root**
 
-Copy `config.sample.php` to `config.php` and fill in the three values from
-step 1:
+Set it to the `public` folder inside wherever Git deployed the repository.
+
+This matters. It is what keeps `includes/config.php` - which holds the database
+password - and the `storage/uploads` scratch folder unreachable from the web.
+If the document root points at the top of the repository instead, both are
+exposed.
+
+---
+
+## 5. Switch on Basic authentication
+
+Plesk → **Websites & Domains** → `recon.davidmitchell.me.uk` →
+**Password-Protected Directories**
+
+Protect `/` and add yourself as a user. This is the same protection that sits
+in front of the Toolkit today.
+
+**Do this before you import any real bank data**, not after.
+
+---
+
+## 6. Create the config file
+
+Plesk → **Files** → the `includes` folder of the new subdomain.
+
+Copy `config.sample.php` to `config.php`. The database details are the ones the
+Toolkit already uses, so the quickest and safest way to get them right is to
+open the Toolkit's own `config.php` (in its `includes` folder) and copy the
+three values across:
 
 ```php
-'name' => 'entigy_recon',
-'user' => 'entigy_recon_user',
-'pass' => 'the password Plesk generated',
+'host' => 'localhost',
+'name' => 'accountant_toolkit',
+'user' => 'toolkit_user',
+'pass' => 'the same password the Toolkit uses',
 ```
 
-This file is deliberately **not** in GitHub, because it holds a password. So
-it has to be made here, by hand, once. It then stays put and survives every
-future deployment - which is what you want.
+Use `localhost`, not `127.0.0.1` - that is what the Toolkit uses and what is
+known to work here.
+
+This file is deliberately **not** in GitHub, because it holds a password. It
+has to be made here by hand, once. It then stays put and survives every future
+deployment.
 
 Also check that `storage/uploads` is writable by the web server. It is only
 used as a scratch area while you confirm the columns of an uploaded file.
@@ -103,16 +111,26 @@ used as a scratch area while you confirm the columns of an uploaded file.
 
 ## Checking it worked
 
-Visit the domain. You should get the home screen showing zero ledger items and
-zero bank items.
+Visit `https://recon.davidmitchell.me.uk`. You should get a password prompt,
+then the home screen showing zero ledger items and zero bank items.
 
-If you get **"Setup needed: copy includes/config.sample.php..."**, step 5 has
-not been done, or the file is in the wrong place.
+| What you see | What it means |
+| --- | --- |
+| "Setup needed: copy includes/config.sample.php..." | Step 6 not done, or the file is in the wrong folder |
+| Blank page or 500 error | Wrong password in `config.php`, or step 1 not done |
+| "Class PDO not found" | The `pdo_mysql` PHP extension is off for this subdomain. It works on this subscription for the Toolkit, so this is unlikely - but if it happens, the host has to enable it |
+| Page loads but has no styling | Document root is not pointing at `public` |
+| No password prompt | Step 5 not done - do not import real data until it is |
 
-If you get a blank page or a 500 error, the usual causes are a wrong password
-in `config.php`, or the tables not having been created in step 2.
+---
 
-If you get **"Class PDO not found"**, the `pdo_mysql` PHP extension is not
-enabled for this domain. It was switched on for `davidmitchell.me.uk` when the
-Accountant Toolkit went live, but it may not be server-wide. Your host has to
-enable it - no code change is needed.
+## Moving to a database of its own, later
+
+If the database allowance is ever raised, moving is straightforward:
+
+1. In phpMyAdmin, export just the six `rec_` tables from `accountant_toolkit`.
+2. Create the new database and import them into it.
+3. Change `name`, `user` and `pass` in `config.php`.
+4. Once you are happy, drop the six `rec_` tables from `accountant_toolkit`.
+
+Nothing in the code needs to change.

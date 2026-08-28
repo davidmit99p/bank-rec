@@ -2,11 +2,12 @@
 -- Bank Reconciliation - run this ONCE against your MariaDB database
 -- (Plesk > Databases > phpMyAdmin > SQL tab > paste > Go).
 --
--- Six tables: ledger, bank, rules, runs, match_groups, match_lines.
+-- Every table name starts with rec_ so these six sit safely alongside tables
+-- you already have - currently the Accountant Toolkit's database.
 -- ---------------------------------------------------------------------------
 
 -- Table 1: the ledger (your accounting system) --------------------------------
-CREATE TABLE IF NOT EXISTS ledger (
+CREATE TABLE IF NOT EXISTS rec_ledger (
     id          INT AUTO_INCREMENT PRIMARY KEY,
     txn_date    DATE          NOT NULL,
     description VARCHAR(500)  NOT NULL DEFAULT '',
@@ -22,7 +23,7 @@ CREATE TABLE IF NOT EXISTS ledger (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Table 2: the bank statement -------------------------------------------------
-CREATE TABLE IF NOT EXISTS bank (
+CREATE TABLE IF NOT EXISTS rec_bank (
     id          INT AUTO_INCREMENT PRIMARY KEY,
     txn_date    DATE          NOT NULL,
     description VARCHAR(500)  NOT NULL DEFAULT '',
@@ -39,7 +40,7 @@ CREATE TABLE IF NOT EXISTS bank (
 -- The rule library ------------------------------------------------------------
 -- One row = one rule. The l_ columns are the LEFT (ledger) form on the rule
 -- screen, the b_ columns are the RIGHT (bank) form.
-CREATE TABLE IF NOT EXISTS rules (
+CREATE TABLE IF NOT EXISTS rec_rules (
     id           INT AUTO_INCREMENT PRIMARY KEY,
     name         VARCHAR(150)  NOT NULL,
     active       TINYINT(1)    NOT NULL DEFAULT 1,
@@ -78,7 +79,7 @@ CREATE TABLE IF NOT EXISTS rules (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- One row per matching run ----------------------------------------------------
-CREATE TABLE IF NOT EXISTS runs (
+CREATE TABLE IF NOT EXISTS rec_runs (
     id           INT AUTO_INCREMENT PRIMARY KEY,
     run_ref      VARCHAR(30)  NOT NULL UNIQUE,          -- e.g. RUN-20260828-4KQ2
     status       VARCHAR(15)  NOT NULL DEFAULT 'draft', -- draft | finalised | discarded
@@ -89,7 +90,7 @@ CREATE TABLE IF NOT EXISTS runs (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- A suggested (or committed) match: one group, both sides must total the same --
-CREATE TABLE IF NOT EXISTS match_groups (
+CREATE TABLE IF NOT EXISTS rec_match_groups (
     id           INT AUTO_INCREMENT PRIMARY KEY,
     run_id       INT           NOT NULL,
     group_no     INT           NOT NULL,
@@ -103,13 +104,13 @@ CREATE TABLE IF NOT EXISTS match_groups (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- The individual transactions inside a match group ----------------------------
-CREATE TABLE IF NOT EXISTS match_lines (
+CREATE TABLE IF NOT EXISTS rec_match_lines (
     id       INT AUTO_INCREMENT PRIMARY KEY,
     group_id INT           NOT NULL,
     side     VARCHAR(10)   NOT NULL,       -- ledger | bank
     txn_id   INT           NOT NULL,
     value    DECIMAL(15,2) NOT NULL,
     CONSTRAINT fk_line_group FOREIGN KEY (group_id)
-        REFERENCES match_groups(id) ON DELETE CASCADE,
+        REFERENCES rec_match_groups(id) ON DELETE CASCADE,
     INDEX (group_id), INDEX (side, txn_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

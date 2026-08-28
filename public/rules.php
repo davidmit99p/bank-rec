@@ -4,16 +4,16 @@ require_once __DIR__ . '/../includes/layout.php';
 require_once __DIR__ . '/../includes/matcher.php';
 
 if (($_POST['action'] ?? '') === 'toggle') {
-    db()->prepare("UPDATE rules SET active = 1 - active WHERE id = ?")->execute([(int)$_POST['id']]);
+    db()->prepare("UPDATE rec_rules SET active = 1 - active WHERE id = ?")->execute([(int)$_POST['id']]);
     header('Location: rules.php'); exit;
 }
 if (($_POST['action'] ?? '') === 'delete') {
-    db()->prepare("DELETE FROM rules WHERE id = ?")->execute([(int)$_POST['id']]);
+    db()->prepare("DELETE FROM rec_rules WHERE id = ?")->execute([(int)$_POST['id']]);
     flash('Rule deleted. Matches already finalised under it keep their rule number.');
     header('Location: rules.php'); exit;
 }
 
-$rules = db()->query("SELECT * FROM rules ORDER BY sort_order, id")->fetchAll();
+$rules = db()->query("SELECT * FROM rec_rules ORDER BY sort_order, id")->fetchAll();
 
 // A short readable summary of one side of a rule.
 function side_summary(array $r, $p)
