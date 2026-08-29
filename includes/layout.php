@@ -21,6 +21,7 @@ function render_header($title = '')
         'matches.php'      => 'Matches',
         'runs.php'         => 'Runs',
         'recs.php'         => 'Reconciliations',
+        'shelf.php'        => 'Shelf',
     ];
     ?>
 <!doctype html>
