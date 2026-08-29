@@ -161,9 +161,20 @@ shares a domain with this now, so it is worth thirty seconds to confirm.
 
 ## Tidying this up later
 
-This layout is a workaround for the plan limits, not the ideal. Ask your dev
-ops person to raise the domain and database allowances - you will hit the same
-wall with Process Manager. Once he has:
+This layout is a workaround for the plan limits, not the ideal.
+
+**Three things to ask your dev ops person for**, none of them urgent:
+
+1. Raise the **domain / subdomain allowance** - there was no room for even a
+   subdomain, which is why the app is in a folder of an existing site.
+2. Raise the **database allowance** on `davidmitchell.me.uk` - it was full at
+   2 of 2, which is why the database lives on the daveslist subscription.
+3. Enable the **`zip` PHP extension** - without it the tool cannot read `.xlsx`
+   files and you have to save spreadsheets as CSV first. No code change needed.
+
+You will hit the first two again with Process Manager.
+
+Once the allowances are raised:
 
 1. Create a subdomain, say `recon.davidmitchell.me.uk`.
 2. Point a new Git deployment at it, document root on `public`.

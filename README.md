@@ -35,9 +35,12 @@ This is enforced in three separate places:
    while you are confirming the columns of an uploaded file.
 
 Requires PHP 8.0 or later. Built and tested on 8.5.9, which is what
-davidmitchell.me.uk runs. Reading `.xlsx` files needs the standard `zip`
-extension, which Plesk has switched on by default; if it is missing, save the
-file as CSV instead.
+davidmitchell.me.uk runs.
+
+Reading `.xlsx` files needs the standard `zip` extension. **It is not enabled
+on davidmitchell.me.uk**, so on the live site you must save spreadsheets as CSV
+before importing. The tool says so plainly rather than failing oddly. Enabling
+`zip` is one line of server configuration and needs no code change.
 
 ## Using it
 
