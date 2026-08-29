@@ -118,6 +118,12 @@ php tools/dry_run.php "ledger.xlsx" "bank.xlsx"
 Useful for testing a rule idea before you commit to it. Edit the `$RULES`
 array at the top of that file to try different combinations.
 
+## Shelf notes
+
+`SHELF.md` holds the things worth doing but not being done now - what to ask
+the host for, ideas ready to build, and the limits that were left deliberately.
+Add to it as ideas come up.
+
 ## What is in each folder
 
 ```
