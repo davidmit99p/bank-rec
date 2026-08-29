@@ -118,7 +118,7 @@ render_header('Review ' . $run['run_ref']);
      <b><?= $accepted ?></b> ticked.
      <span class="muted small">
      <?php foreach ($byRule as $ref => $n): ?>
-       &middot; <?= $ref === 'manual' ? 'manual' : 'rule ' . h($ref) ?>: <?= $n ?>
+       &middot; <?= is_numeric($ref) ? 'rule ' . h($ref) : h($ref) ?>: <?= $n ?>
      <?php endforeach; ?></span></p>
 </div>
 
@@ -165,14 +165,18 @@ render_header('Review ' . $run['run_ref']);
         <input type="checkbox" name="accept[]" value="<?= (int)$g['id'] ?>" class="acc"
                data-id="<?= (int)$g['id'] ?>" <?= $g['accepted'] ? 'checked' : '' ?> style="width:auto">
       <?php endif; ?>
-      <span class="tag <?= $g['rule_ref'] === 'manual' ? 'manual' : '' ?>">
-        <?= $g['rule_ref'] === 'manual' ? 'Manual' : 'Rule ' . h($g['rule_ref']) ?></span>
+      <span class="tag <?= is_numeric($g['rule_ref']) ? '' : 'manual' ?>">
+        <?= is_numeric($g['rule_ref']) ? 'Rule ' . h($g['rule_ref']) : h(ucfirst($g['rule_ref'])) ?></span>
       <b>Match <?= (int)$g['group_no'] ?></b>
       <span class="muted small"><?= h($g['rule_name']) ?></span>
       <span style="margin-left:auto" class="balance <?= $ok ? 'ok' : 'off' ?>">
-        <?= money($g['ledger_total']) ?>
-        <?= $g['sign_mode'] === 'opposite' ? 'against' : '=' ?>
-        <?= money($g['bank_total']) ?>
+        <?php if ($g['rule_ref'] === 'contra'): ?>
+          cancels out to 0.00
+        <?php else: ?>
+          <?= money($g['ledger_total']) ?>
+          <?= $g['sign_mode'] === 'opposite' ? 'against' : '=' ?>
+          <?= money($g['bank_total']) ?>
+        <?php endif; ?>
         <?= $ok ? '' : ' - does not balance' ?>
       </span>
     </header>
@@ -181,6 +185,10 @@ render_header('Review ' . $run['run_ref']);
           $sideLines = array_values(array_filter($lines, fn($l) => $l['side'] === $side)); ?>
       <div>
         <span class="muted small"><?= $label ?></span>
+        <?php if (!$sideLines): ?>
+          <p class="small muted" style="margin:.2rem 0">Nothing on this side &mdash; the entries opposite
+            cancel each other out.</p>
+        <?php endif; ?>
         <table>
           <?php foreach ($sideLines as $l): ?>
           <tr><td class="small" style="width:6rem"><?= h($l['txn_date']) ?></td>

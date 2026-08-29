@@ -36,7 +36,11 @@ if (($_POST['action'] ?? '') === 'manual') {
     $lIds = array_map('intval', $_POST['ledger'] ?? []);
     $bIds = array_map('intval', $_POST['bank'] ?? []);
     try {
-        if (!$lIds || !$bIds) throw new RuntimeException('Tick at least one item on each side.');
+        if (!$lIds && !$bIds) throw new RuntimeException('Tick some items first.');
+        // Ticking only one side is allowed when those entries cancel each other
+        // out - a posting error and its reversal, say. There is nothing on the
+        // bank to match them against, but they still net to nothing.
+        $oneSided = (!$lIds || !$bIds);
 
         $fetch = function ($table, $ids) {
             $in = implode(',', array_fill(0, count($ids), '?'));
@@ -52,10 +56,30 @@ if (($_POST['action'] ?? '') === 'manual') {
 
         $lTot = array_sum(array_map(fn($r) => (float)$r['value'], $lRows));
         $bTot = array_sum(array_map(fn($r) => (float)$r['value'], $bRows));
-        // GOLDEN RULE
-        if (abs($lTot - $bTot) >= 0.005) {
-            throw new RuntimeException('Those do not balance: ledger ' . money($lTot)
-                . ' against bank ' . money($bTot) . ', a difference of ' . money($lTot - $bTot) . '.');
+
+        // GOLDEN RULE, in both its forms
+        if ($oneSided) {
+            $side  = $lIds ? 'ledger' : 'bank';
+            $total = $lIds ? $lTot : $bTot;
+            $n     = count($lRows) + count($bRows);
+            if ($n < 2) {
+                throw new RuntimeException('Ticking one side on its own is for entries that cancel each '
+                    . 'other out, so tick at least two of them.');
+            }
+            if (abs($total) >= 0.005) {
+                throw new RuntimeException('Those ' . $side . ' entries do not cancel each other out - they '
+                    . 'come to ' . money($total) . ' rather than zero. To match against the other side, tick '
+                    . 'something there too.');
+            }
+            $ruleRef  = 'contra';
+            $ruleName = 'Contra - entries that cancel out';
+        } else {
+            if (abs($lTot - $bTot) >= 0.005) {
+                throw new RuntimeException('Those do not balance: ledger ' . money($lTot)
+                    . ' against bank ' . money($bTot) . ', a difference of ' . money($lTot - $bTot) . '.');
+            }
+            $ruleRef  = 'manual';
+            $ruleName = 'Manual match';
         }
 
         $run = current_draft(true);
@@ -69,14 +93,17 @@ if (($_POST['action'] ?? '') === 'manual') {
                                          WHERE run_id = " . (int)$run['id'])->fetchColumn();
         $pdo->prepare("INSERT INTO rec_match_groups
             (run_id, group_no, rule_ref, rule_name, ledger_total, bank_total, sign_mode, accepted)
-            VALUES (?,?,'manual','Manual match',?,?,'same',1)")
-            ->execute([$run['id'], $groupNo, $lTot, $bTot]);
+            VALUES (?,?,?,?,?,?,'same',1)")
+            ->execute([$run['id'], $groupNo, $ruleRef, $ruleName, $lTot, $bTot]);
         $gid = $pdo->lastInsertId();
         $ins = $pdo->prepare("INSERT INTO rec_match_lines (group_id, side, txn_id, value) VALUES (?,?,?,?)");
         foreach ($lRows as $r) $ins->execute([$gid, 'ledger', $r['id'], $r['value']]);
         foreach ($bRows as $r) $ins->execute([$gid, 'bank',   $r['id'], $r['value']]);
 
-        flash('Manual match added to ' . $run['run_ref'] . ' for ' . money($lTot)
+        flash($oneSided
+            ? 'Contra added to ' . $run['run_ref'] . ' - ' . (count($lRows) + count($bRows))
+              . ' entries that cancel each other out. It will be committed when you finalise.'
+            : 'Manual match added to ' . $run['run_ref'] . ' for ' . money($lTot)
               . '. It will be committed when you finalise.');
         header('Location: transactions.php');
         exit;
@@ -146,7 +173,8 @@ render_header('Transactions');
 ?>
 <h1>3. Transactions</h1>
 <p class="muted">Everything still to be matched. Press <b>Process</b> to run the rules, or tick items on
-both sides and match them yourself.</p>
+both sides and match them yourself. To clear a posting error and its reversal, tick them on
+<b>one side alone</b> &mdash; they match as a contra, so long as they cancel each other out.</p>
 
 <?php if ($error): ?><p class="flash" style="background:#fbeeee;border-color:#eccfcf;color:#a12f2f"><?= h($error) ?></p><?php endif; ?>
 
@@ -257,8 +285,30 @@ both sides and match them yourself.</p>
     var d = Math.round((l - b) * 100) / 100;
     elL.textContent = 'Ledger ticked ' + fmt(l) + ' (' + nL + ')';
     elB.textContent = 'Bank ticked ' + fmt(b) + ' (' + nB + ')';
-    elD.textContent = 'Difference ' + fmt(d);
-    var ok = nL > 0 && nB > 0 && Math.abs(d) < 0.005;
+
+    var bothSides = nL > 0 && nB > 0;
+    var oneSided  = (nL > 0) !== (nB > 0);
+    var sideTotal = nL > 0 ? l : b;
+    var sideCount = nL > 0 ? nL : nB;
+    var ok;
+
+    if (bothSides) {
+      // the two sides must agree
+      elD.textContent = 'Difference ' + fmt(d);
+      ok = Math.abs(d) < 0.005;
+      btn.textContent = 'Match ticked items';
+    } else if (oneSided) {
+      // one side on its own must cancel itself out - a posting error and its
+      // reversal, with nothing on the other side to match against
+      elD.textContent = (nL > 0 ? 'Ledger' : 'Bank') + ' ticked comes to ' + fmt(sideTotal);
+      ok = sideCount >= 2 && Math.abs(sideTotal) < 0.005;
+      btn.textContent = 'Match as contra';
+    } else {
+      elD.textContent = 'Difference 0.00';
+      ok = false;
+      btn.textContent = 'Match ticked items';
+    }
+
     elD.className = 'balance ' + (nL + nB === 0 ? '' : (ok ? 'ok' : 'off'));
     btn.disabled = !ok;
   }
