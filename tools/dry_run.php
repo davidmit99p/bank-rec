@@ -60,6 +60,8 @@ $RULES = [
     // grouping rules go last - try the simple pairings first
     rule(['id' => 5, 'name' => 'Several ledger lines add up to one bank line',
           'date_tol' => 5, 'grouping' => 'many_left', 'max_group' => 4]),
+    rule(['id' => 6, 'name' => 'Ledger: same day, equal and opposite (contra)',
+          'date_tol' => 0, 'grouping' => 'contra_left']),
 ];
 
 echo str_repeat('=', 78), "\n";
@@ -83,7 +85,18 @@ foreach ($RULES as $rule) {
     $B = array_values(array_filter($bank,   fn($r) => !isset($usedB[$r['id']]) && row_matches_side($r, $rule, 'b_')));
     $sign = $rule['sign_mode'] === 'opposite' ? -1 : 1;
 
-    if ($rule['grouping'] === 'many_left') {
+    if (contra_side($rule['grouping'])) {
+        $isL   = contra_side($rule['grouping']) === 'ledger';
+        $pairs = $isL
+            ? find_contra_pairs($L, $usedL, (int)$rule['date_tol'], (int)$rule['link_desc'])
+            : find_contra_pairs($B, $usedB, (int)$rule['date_tol'], (int)$rule['link_desc']);
+        foreach ($pairs as $pair) {
+            $groupNo++;
+            $groups[] = ['rule' => $rule, 'no' => $groupNo,
+                         'ledger' => $isL ? $pair : [], 'bank' => $isL ? [] : $pair];
+            $made++;
+        }
+    } elseif ($rule['grouping'] === 'many_left') {
         foreach ($B as $b) {
             if (isset($usedB[$b['id']])) continue;
             $set = find_combination($L, $usedL, $sign * (float)$b['value'], $b['txn_date'],

@@ -42,10 +42,20 @@ function date_ops() {
 }
 function grouping_modes() {
     return [
-        'one'        => 'One ledger line to one bank line',
-        'many_left'  => 'Several ledger lines add up to one bank line',
-        'many_right' => 'One ledger line splits into several bank lines',
+        'one'           => 'One ledger line to one bank line',
+        'many_left'     => 'Several ledger lines add up to one bank line',
+        'many_right'    => 'One ledger line splits into several bank lines',
+        'contra_left'   => 'Two ledger lines that cancel each other out (contra)',
+        'contra_right'  => 'Two bank lines that cancel each other out (contra)',
     ];
+}
+
+// Which side a contra rule works on, or null if it is not a contra rule.
+function contra_side($grouping)
+{
+    if ($grouping === 'contra_left')  return 'ledger';
+    if ($grouping === 'contra_right') return 'bank';
+    return null;
 }
 
 // --- criteria testing --------------------------------------------------------
@@ -231,6 +241,47 @@ function find_combination(array $pool, array $used, $target, $anchorDate, $tol,
     return $best;
 }
 
+// Find pairs on ONE side that are equal and opposite - a posting error and its
+// reversal. There is nothing on the other side to match them against, but they
+// still net to nothing, so the golden rule is honoured rather than bent.
+//
+// Deliberately pairs only. "Equal and opposite" means two entries; hunting for
+// larger sets that happen to reach zero is how you end up matching things that
+// have nothing to do with each other.
+function find_contra_pairs(array $pool, array &$used, $tol, $linkDesc)
+{
+    // index by value so we can jump straight to the opposite amount
+    $byValue = [];
+    foreach ($pool as $r) {
+        $byValue[number_format((float)$r['value'], 2, '.', '')][] = $r;
+    }
+
+    $pairs = [];
+    foreach ($pool as $a) {
+        if (isset($used[$a['id']])) continue;
+        $va = (float)$a['value'];
+        if (abs($va) < 0.005) continue;                 // a nil entry cancels nothing
+        $key = number_format(-$va, 2, '.', '');
+        if (empty($byValue[$key])) continue;
+
+        $best = null;
+        $bestGap = PHP_INT_MAX;
+        foreach ($byValue[$key] as $b) {
+            if ($b['id'] === $a['id'] || isset($used[$b['id']])) continue;
+            $gap = days_apart($a['txn_date'], $b['txn_date']);
+            if ($gap > $tol) continue;
+            if ($linkDesc && !descs_agree($a['description'], $b['description'])) continue;
+            if ($gap < $bestGap) { $best = $b; $bestGap = $gap; }
+        }
+        if ($best) {
+            $used[$a['id']] = 1;
+            $used[$best['id']] = 1;
+            $pairs[] = [$a, $best];
+        }
+    }
+    return $pairs;
+}
+
 // -----------------------------------------------------------------------------
 // Run every active rule against the open items and write the suggestions.
 // -----------------------------------------------------------------------------
@@ -259,11 +310,30 @@ function run_rules($runId)
                 fn($r) => !isset($usedL[$r['id']]) && row_matches_side($r, $rule, 'l_')));
         $B = array_values(array_filter($bank,
                 fn($r) => !isset($usedB[$r['id']]) && row_matches_side($r, $rule, 'b_')));
-        if (!$L || !$B) { $perRule[] = ['rule' => $rule, 'made' => 0]; continue; }
+        // a contra rule only needs its own side to have anything in it
+        $contra = contra_side($rule['grouping']);
+        $haveWork = $contra === 'ledger' ? (bool)$L
+                  : ($contra === 'bank' ? (bool)$B : ($L && $B));
+        if (!$haveWork) { $perRule[] = ['rule' => $rule, 'made' => 0]; continue; }
 
         $sign = $rule['sign_mode'] === 'opposite' ? -1 : 1;
 
-        if ($rule['grouping'] === 'many_left') {
+        if (contra_side($rule['grouping'])) {
+            // equal and opposite entries on one side only
+            $side  = contra_side($rule['grouping']);
+            $isL   = $side === 'ledger';
+            $pairs = $isL
+                ? find_contra_pairs($L, $usedL, (int)$rule['date_tol'], (int)$rule['link_desc'])
+                : find_contra_pairs($B, $usedB, (int)$rule['date_tol'], (int)$rule['link_desc']);
+            foreach ($pairs as $pair) {
+                $groupNo++;
+                $insG->execute([$runId, $groupNo, (string)$rule['id'], $rule['name'],
+                                0, 0, 'same']);
+                $gid = $pdo->lastInsertId();
+                foreach ($pair as $r) $insL->execute([$gid, $side, $r['id'], $r['value']]);
+                $made++;
+            }
+        } elseif ($rule['grouping'] === 'many_left') {
             // several ledger lines add up to one bank line
             foreach ($B as $b) {
                 if (isset($usedB[$b['id']])) continue;

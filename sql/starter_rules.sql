@@ -32,4 +32,12 @@ VALUES
 
   ('One ledger line splits into several bank lines',
    0, 60, 5, 'same', 'many_right', 4, 0,
-   'The mirror image - off by default, turn it on if you need it.');
+   'The mirror image - off by default, turn it on if you need it.'),
+
+  ('Ledger: same day, equal and opposite (contra)',
+   1, 70, 0, 'same', 'contra_left', 2, 0,
+   'Clears a posting error and its reversal. Both entries are on the ledger and there is nothing on the bank to match them against, but they cancel each other out. Leave the wording tick off - a correction rarely carries the same narrative as the entry it reverses.'),
+
+  ('Bank: same day, equal and opposite (contra)',
+   0, 80, 0, 'same', 'contra_right', 2, 0,
+   'The same thing on the bank side - a payment returned the same day, say. Off by default.');

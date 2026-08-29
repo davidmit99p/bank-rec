@@ -158,6 +158,10 @@ render_header('Review ' . $run['run_ref']);
       $lineSql->execute([$g['id']]);
       $lines = $lineSql->fetchAll();
       $ok = group_balances($g['ledger_total'], $g['bank_total'], $g['sign_mode']);
+      // a contra sits entirely on one side, whether it came from a rule or by hand
+      $hasL = (bool)array_filter($lines, fn($l) => $l['side'] === 'ledger');
+      $hasB = (bool)array_filter($lines, fn($l) => $l['side'] === 'bank');
+      $isContra = !$hasL || !$hasB;
   ?>
   <div class="group-card<?= $g['accepted'] ? '' : ' off' ?>" id="g<?= (int)$g['id'] ?>">
     <header>
@@ -170,7 +174,7 @@ render_header('Review ' . $run['run_ref']);
       <b>Match <?= (int)$g['group_no'] ?></b>
       <span class="muted small"><?= h($g['rule_name']) ?></span>
       <span style="margin-left:auto" class="balance <?= $ok ? 'ok' : 'off' ?>">
-        <?php if ($g['rule_ref'] === 'contra'): ?>
+        <?php if ($isContra): ?>
           cancels out to 0.00
         <?php else: ?>
           <?= money($g['ledger_total']) ?>
