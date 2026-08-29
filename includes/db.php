@@ -1,6 +1,9 @@
 <?php
 // Loads config and gives us a single database connection to reuse.
 
+// Stand-ins for PHP extensions the live server does not have.
+require_once __DIR__ . '/compat.php';
+
 // Where the config file may live, in the order we look for it.
 //
 // Normally it sits in this folder, and the document root points at public/ so
