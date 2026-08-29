@@ -161,14 +161,14 @@ both sides and match them yourself.</p>
           <span class="num <?= $lTot < 0 ? 'neg' : '' ?>"><?= money($lTot) ?></span></span></div>
       <div class="scroll">
         <table>
-          <thead><tr><th style="width:1.5rem"></th><th>Date</th><th>Description</th><th class="num">Value</th></tr></thead>
+          <thead><tr><th>Date</th><th>Description</th><th class="num">Value</th><th style="width:1.5rem"></th></tr></thead>
           <tbody>
           <?php foreach ($ledger as $t): ?>
-            <tr><td><input type="checkbox" name="ledger[]" value="<?= (int)$t['id'] ?>"
-                     class="tick" data-side="L" data-value="<?= h($t['value']) ?>"></td>
-                <td class="small"><?= h($t['txn_date']) ?></td>
+            <tr><td class="small"><?= h($t['txn_date']) ?></td>
                 <td class="desc" title="<?= h($t['description']) ?>"><?= h($t['description']) ?></td>
-                <td class="num <?= $t['value'] < 0 ? 'neg' : '' ?>"><?= money($t['value']) ?></td></tr>
+                <td class="num <?= $t['value'] < 0 ? 'neg' : '' ?>"><?= money($t['value']) ?></td>
+                <td><input type="checkbox" name="ledger[]" value="<?= (int)$t['id'] ?>"
+                     class="tick" data-side="L" data-value="<?= h($t['value']) ?>"></td></tr>
           <?php endforeach; ?>
           <?php if (!$ledger): ?><tr><td colspan="4" class="muted">Nothing open.</td></tr><?php endif; ?>
           </tbody>
