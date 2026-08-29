@@ -17,7 +17,8 @@ if (($_POST['action'] ?? '') === 'delete') {
 if (($_POST['action'] ?? '') === 'move') {
     $id  = (int)$_POST['id'];
     $dir = ($_POST['dir'] ?? '') === 'up' ? -1 : 1;
-    $ids = db()->query("SELECT id FROM rec_rules ORDER BY sort_order, id")->fetchAll(PDO::FETCH_COLUMN);
+    $ids = db()->query("SELECT id FROM rec_rules WHERE 1=1" . rule_and()
+                       . " ORDER BY sort_order, id")->fetchAll(PDO::FETCH_COLUMN);
     $pos = array_search($id, $ids);
     $new = $pos === false ? -1 : $pos + $dir;
     if ($pos !== false && $new >= 0 && $new < count($ids)) {
@@ -28,7 +29,8 @@ if (($_POST['action'] ?? '') === 'move') {
     header('Location: rules.php'); exit;
 }
 
-$rules = db()->query("SELECT * FROM rec_rules ORDER BY sort_order, id")->fetchAll();
+$rules = db()->query("SELECT * FROM rec_rules WHERE 1=1" . rule_and()
+                      . " ORDER BY sort_order, id")->fetchAll();
 
 // A short readable summary of one side of a rule.
 function side_summary(array $r, $p)
@@ -98,8 +100,8 @@ reorder.</p>
       </span>
     </header>
     <div class="sides">
-      <div><span class="muted small">Ledger side</span><br><?= h(side_summary($r, 'l_')) ?></div>
-      <div><span class="muted small">Bank side</span><br><?= h(side_summary($r, 'b_')) ?></div>
+      <div><span class="muted small"><?= h(side_label('ledger')) ?> side</span><br><?= h(side_summary($r, 'l_')) ?></div>
+      <div><span class="muted small"><?= h(side_label('bank')) ?> side</span><br><?= h(side_summary($r, 'b_')) ?></div>
     </div>
     <?php if ($r['notes']): ?><p class="small muted" style="margin:.4rem 0 0"><?= h($r['notes']) ?></p><?php endif; ?>
   </div>

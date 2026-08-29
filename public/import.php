@@ -126,8 +126,9 @@ try {
     if ($stage === 'clear') {
         $side  = ($_POST['side'] ?? '') === 'bank' ? 'bank' : 'ledger';
         $table = $side === 'ledger' ? 'rec_ledger' : 'rec_bank';
-        $open  = (int)db()->query("SELECT COUNT(*) FROM {$table} WHERE matched_at IS NULL")->fetchColumn();
-        db()->exec("DELETE FROM {$table} WHERE matched_at IS NULL");
+        $open  = (int)db()->query("SELECT COUNT(*) FROM {$table} WHERE matched_at IS NULL"
+                                  . rec_and())->fetchColumn();
+        db()->exec("DELETE FROM {$table} WHERE matched_at IS NULL" . rec_and());
         flash("Removed {$open} unmatched {$side} transactions. Matched history was left alone.");
         header('Location: import.php');
         exit;
@@ -137,8 +138,8 @@ try {
 }
 
 $counts = [
-    'ledger' => db()->query("SELECT COUNT(*) c, SUM(matched_at IS NULL) o FROM rec_ledger")->fetch(),
-    'bank'   => db()->query("SELECT COUNT(*) c, SUM(matched_at IS NULL) o FROM rec_bank")->fetch(),
+    'ledger' => db()->query("SELECT COUNT(*) c, SUM(matched_at IS NULL) o FROM rec_ledger WHERE " . rec_where())->fetch(),
+    'bank'   => db()->query("SELECT COUNT(*) c, SUM(matched_at IS NULL) o FROM rec_bank WHERE " . rec_where())->fetch(),
 ];
 
 render_header('Import');
@@ -278,7 +279,7 @@ warning if the transactions appear to be in already.</p>
 <?php endif; ?>
 
 <div class="sides">
-<?php foreach (['ledger' => 'Ledger (table 1)', 'bank' => 'Bank (table 2)'] as $side => $title): ?>
+<?php foreach (['ledger' => side_label('ledger') . ' (table 1)', 'bank' => side_label('bank') . ' (table 2)'] as $side => $title): ?>
   <div class="panel">
     <div class="side-head"><h2><?= $title ?></h2>
       <span class="muted small"><?= (int)$counts[$side]['c'] ?> rows,

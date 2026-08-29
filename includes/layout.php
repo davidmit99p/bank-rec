@@ -1,10 +1,17 @@
 <?php
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/context.php';
+
+// Switching reconciliation redirects, so it must happen before any output.
+handle_rec_switch();
 
 function render_header($title = '')
 {
     $appName = config('app')['name'] ?? 'Bank Reconciliation';
-    $full = $title ? "$title \xE2\x80\x94 $appName" : $appName;
+    $rec  = current_rec();
+    $recs = all_recs();
+    $titleBase = $rec ? $rec['name'] : $appName;
+    $full = $title ? "$title \xE2\x80\x94 $titleBase" : $titleBase;
     $here = basename($_SERVER['SCRIPT_NAME'] ?? '');
     $nav = [
         'index.php'        => 'Home',
@@ -13,6 +20,7 @@ function render_header($title = '')
         'transactions.php' => '3. Transactions',
         'matches.php'      => 'Matches',
         'runs.php'         => 'Runs',
+        'recs.php'         => 'Reconciliations',
     ];
     ?>
 <!doctype html>
@@ -34,6 +42,21 @@ function render_header($title = '')
     <a href="<?= $file ?>"<?= $here === $file ? ' class="on"' : '' ?>><?= h($label) ?></a>
 <?php endforeach; ?>
   </nav>
+<?php if ($recs): ?>
+  <form method="get" class="rec-picker">
+    <?php foreach ($_GET as $k => $v):
+        if ($k === 'switch_rec' || !is_scalar($v)) continue; ?>
+      <input type="hidden" name="<?= h($k) ?>" value="<?= h($v) ?>">
+    <?php endforeach; ?>
+    <label for="recSel">Working on</label>
+    <select id="recSel" name="switch_rec" onchange="this.form.submit()">
+      <?php foreach ($recs as $r): ?>
+        <option value="<?= (int)$r['id'] ?>"<?= $rec && $rec['id'] == $r['id'] ? ' selected' : '' ?>>
+          <?= h($r['name']) ?><?= $r['active'] ? '' : ' (off)' ?></option>
+      <?php endforeach; ?>
+    </select>
+  </form>
+<?php endif; ?>
 </header>
 <main class="container">
 <?php foreach ((array)flash() as $m): ?>

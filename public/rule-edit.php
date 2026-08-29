@@ -18,6 +18,7 @@ if ($id) {
 $blank = [
     'name' => '', 'active' => 1, 'sort_order' => 100, 'notes' => '',
     'date_tol' => 3, 'sign_mode' => 'same', 'grouping' => 'one', 'max_group' => 4, 'link_desc' => 0,
+    'rec_id' => null,
 ];
 foreach (['l_', 'b_'] as $p) {
     $blank += [
@@ -30,6 +31,7 @@ $r = $rule ?: $blank;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $cols = ['name','sort_order','notes','date_tol','sign_mode','grouping','max_group'];
+    if (recs_ready()) $cols[] = 'rec_id';
     foreach (['l_','b_'] as $p) {
         foreach (['desc_op','desc_val','value_op','value_val','value_val2','date_op','date_val','date_val2'] as $c) {
             $cols[] = $p . $c;
@@ -48,6 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $vals['date_tol']   = max(0, (int)$vals['date_tol']);
     $vals['max_group']  = min(8, max(2, (int)($vals['max_group'] ?: 4)));
     $vals['active']     = isset($_POST['active']) ? 1 : 0;
+    if (recs_ready()) $vals['rec_id'] = $vals['rec_id'] === '' ? null : (int)$vals['rec_id'];
     $vals['link_desc']  = isset($_POST['link_desc']) ? 1 : 0;
 
     $names = array_keys($vals);
@@ -117,15 +120,28 @@ form to say which <b>bank</b> lines they should be paired with. Leave a box on &
         <label style="margin:0"><input type="checkbox" name="active" value="1" style="width:auto"
           <?= $r['active'] ? 'checked' : '' ?>> Rule is active</label></div>
     </div>
+    <?php if (recs_ready()): ?>
+      <label>Applies to</label>
+      <select name="rec_id">
+        <option value="">Every reconciliation</option>
+        <?php foreach (all_recs() as $rr): ?>
+          <option value="<?= (int)$rr['id'] ?>"<?= (string)($r['rec_id'] ?? '') === (string)$rr['id'] ? ' selected' : '' ?>>
+            Only <?= h($rr['name']) ?></option>
+        <?php endforeach; ?>
+      </select>
+      <p class="small muted">Most rules belong to every reconciliation &mdash; &ldquo;same day, same
+        amount&rdquo; is just as true for one bank account as another. Tie a rule to one only when it
+        keys on something particular to that account.</p>
+    <?php endif; ?>
   </div>
 
   <div class="sides">
     <div class="panel">
-      <div class="side-head"><h2>Ledger &mdash; table 1</h2><span class="muted small">left</span></div>
+      <div class="side-head"><h2><?= h(side_label('ledger')) ?> &mdash; table 1</h2><span class="muted small">left</span></div>
       <?php side_form($r, 'l_'); ?>
     </div>
     <div class="panel">
-      <div class="side-head"><h2>Bank &mdash; table 2</h2><span class="muted small">right</span></div>
+      <div class="side-head"><h2><?= h(side_label('bank')) ?> &mdash; table 2</h2><span class="muted small">right</span></div>
       <?php side_form($r, 'b_'); ?>
     </div>
   </div>

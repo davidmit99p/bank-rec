@@ -17,10 +17,30 @@ This is enforced in three separate places:
 - Finalise checks every ticked group again and refuses the whole batch if
   one of them is out.
 
+## More than one reconciliation
+
+The tool holds as many reconciliations as you like - one per bank account, or a
+supplier statement, or an intercompany balance. Each has its own transactions,
+runs and imports. Pick the one you are working on from the box at the top right
+of every screen; everything else then shows only that one.
+
+Each reconciliation carries **its own labels for the two sides**, so the tool is
+not tied to banks. One might read "Ledger / Bank"; another "Purchase Ledger /
+Supplier Statement". The matching engine does not care - two lists, a set of
+rules, and totals that must agree.
+
+**Rules are shared by default.** A rule with no reconciliation set applies to
+every one of them, which is what you want for "same day, same amount". Tie a
+rule to a single reconciliation on the rule form when it keys on something
+particular to that account.
+
 ## Setting it up
 
 1. **Create the tables.** In Plesk go to Databases, open phpMyAdmin, pick your
    database, choose the SQL tab, paste in `sql/schema.sql` and press Go.
+   On a database that already has data in it, run the `sql/migration_*.sql`
+   files in number order instead - they add to what is there without
+   disturbing it.
    Optionally do the same with `sql/starter_rules.sql` for a set of rules to
    begin with.
 
@@ -116,6 +136,7 @@ tools/dry_run.php            try rules against two files, no database needed
 
 | Table | Holds |
 | --- | --- |
+| `rec_recs` | one row per reconciliation, and what its two sides are called |
 | `rec_ledger` | table 1 - the ledger transactions |
 | `rec_bank` | table 2 - the bank transactions |
 | `rec_rules` | the rule library, one row per rule |

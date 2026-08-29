@@ -70,3 +70,9 @@ textarea{min-height:4rem}
 .group-card.off{opacity:.5}
 .group-card header{display:flex;flex-wrap:wrap;gap:.75rem;align-items:center;margin-bottom:.4rem}
 .group-card .sides{gap:.75rem}
+
+/* the reconciliation picker in the header */
+.rec-picker{display:flex;align-items:center;gap:.4rem;margin-left:auto}
+.rec-picker label{margin:0;font-size:.8rem;color:var(--muted);white-space:nowrap}
+.rec-picker select{width:auto;min-width:12rem;font-weight:600}
+@media (max-width:900px){.rec-picker{margin-left:0;width:100%}}

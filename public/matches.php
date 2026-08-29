@@ -38,7 +38,7 @@ $run   = trim($_GET['run'] ?? '');
 $page  = max(1, (int)($_GET['page'] ?? 1));
 $per   = 40;
 
-$where = ["r.status = 'finalised'"];
+$where = ["r.status = 'finalised'", rec_where('r')];
 $args  = [];
 
 // the description search looks at both sides, since the ledger narrative and
@@ -99,7 +99,8 @@ if ($groups) {
 
 // for the filter dropdowns
 $ruleOpts = $pdo->query("SELECT DISTINCT rule_ref FROM rec_match_groups ORDER BY rule_ref")->fetchAll(PDO::FETCH_COLUMN);
-$runOpts  = $pdo->query("SELECT run_ref FROM rec_runs WHERE status='finalised' ORDER BY id DESC LIMIT 50")->fetchAll(PDO::FETCH_COLUMN);
+$runOpts  = $pdo->query("SELECT run_ref FROM rec_runs WHERE status='finalised'" . rec_and()
+                          . " ORDER BY id DESC LIMIT 50")->fetchAll(PDO::FETCH_COLUMN);
 $back = array_filter(['q' => $q, 'from' => $from, 'to' => $to, 'min' => $minV,
                       'rule' => $rule, 'run' => $run, 'page' => $page]);
 
@@ -168,7 +169,7 @@ or undo a whole match.</p>
         style="color:var(--bad);border-color:var(--bad)">Undo whole match</button>
     </header>
     <div class="sides">
-      <?php foreach ([['ledger', 'Ledger', $L], ['bank', 'Bank', $B]] as [$side, $label, $rows]): ?>
+      <?php foreach ([['ledger', side_label('ledger'), $L], ['bank', side_label('bank'), $B]] as [$side, $label, $rows]): ?>
       <div>
         <span class="muted small"><?= $label ?></span>
         <?php if (!$rows): ?>

@@ -6,6 +6,21 @@
 -- you already have - currently the Accountant Toolkit's database.
 -- ---------------------------------------------------------------------------
 
+-- One row per reconciliation - a bank account, a supplier statement, whatever.
+-- left_label and right_label are what the two sides are called on screen, so
+-- this is not tied to banks.
+CREATE TABLE IF NOT EXISTS rec_recs (
+    id          INT AUTO_INCREMENT PRIMARY KEY,
+    name        VARCHAR(150) NOT NULL,
+    left_label  VARCHAR(60)  NOT NULL DEFAULT 'Ledger',
+    right_label VARCHAR(60)  NOT NULL DEFAULT 'Bank',
+    active      TINYINT(1)   NOT NULL DEFAULT 1,
+    sort_order  INT          NOT NULL DEFAULT 100,
+    notes       TEXT         NULL,
+    created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX (active), INDEX (sort_order)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Table 1: the ledger (your accounting system) --------------------------------
 CREATE TABLE IF NOT EXISTS rec_ledger (
     id          INT AUTO_INCREMENT PRIMARY KEY,
@@ -14,13 +29,14 @@ CREATE TABLE IF NOT EXISTS rec_ledger (
     value       DECIMAL(15,2) NOT NULL,
     source_file VARCHAR(255)  NULL,
     import_id   INT           NULL,
+    rec_id      INT           NULL,
     imported_at DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
     -- filled in when the item is matched and finalised
     run_id      INT           NULL,
     rule_ref    VARCHAR(20)   NULL,
     group_no    INT           NULL,
     matched_at  DATETIME      NULL,
-    INDEX (txn_date), INDEX (value), INDEX (run_id), INDEX (matched_at), INDEX (import_id)
+    INDEX (txn_date), INDEX (value), INDEX (run_id), INDEX (matched_at), INDEX (import_id), INDEX (rec_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Table 2: the bank statement -------------------------------------------------
@@ -31,12 +47,13 @@ CREATE TABLE IF NOT EXISTS rec_bank (
     value       DECIMAL(15,2) NOT NULL,
     source_file VARCHAR(255)  NULL,
     import_id   INT           NULL,
+    rec_id      INT           NULL,
     imported_at DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
     run_id      INT           NULL,
     rule_ref    VARCHAR(20)   NULL,
     group_no    INT           NULL,
     matched_at  DATETIME      NULL,
-    INDEX (txn_date), INDEX (value), INDEX (run_id), INDEX (matched_at), INDEX (import_id)
+    INDEX (txn_date), INDEX (value), INDEX (run_id), INDEX (matched_at), INDEX (import_id), INDEX (rec_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- One row per file that has been loaded, so an import can be removed again ----
@@ -49,7 +66,8 @@ CREATE TABLE IF NOT EXISTS rec_imports (
     date_from   DATE          NULL,
     date_to     DATE          NULL,
     imported_at DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX (side), INDEX (imported_at)
+    rec_id      INT           NULL,
+    INDEX (side), INDEX (imported_at), INDEX (rec_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- The rule library ------------------------------------------------------------
@@ -88,9 +106,10 @@ CREATE TABLE IF NOT EXISTS rec_rules (
     max_group    INT           NOT NULL DEFAULT 4,
     link_desc    TINYINT(1)    NOT NULL DEFAULT 0,      -- also require descriptions to look alike
 
+    rec_id       INT           NULL,   -- NULL means every reconciliation
     notes        TEXT          NULL,
     created_at   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX (active), INDEX (sort_order)
+    INDEX (active), INDEX (sort_order), INDEX (rec_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- One row per matching run ----------------------------------------------------
@@ -101,7 +120,8 @@ CREATE TABLE IF NOT EXISTS rec_runs (
     created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     finalised_at DATETIME     NULL,
     note         VARCHAR(255) NULL,
-    INDEX (status)
+    rec_id       INT          NULL,
+    INDEX (status), INDEX (rec_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- A suggested (or committed) match: one group, both sides must total the same --

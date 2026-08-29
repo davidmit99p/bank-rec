@@ -9,10 +9,15 @@ $pdo = db();
 function current_draft($create = false)
 {
     $pdo = db();
-    $r = $pdo->query("SELECT * FROM rec_runs WHERE status='draft' ORDER BY id DESC LIMIT 1")->fetch();
+    $r = $pdo->query("SELECT * FROM rec_runs WHERE status='draft'" . rec_and()
+                     . " ORDER BY id DESC LIMIT 1")->fetch();
     if ($r || !$create) return $r ?: null;
     $ref = make_run_ref();
-    $pdo->prepare("INSERT INTO rec_runs (run_ref) VALUES (?)")->execute([$ref]);
+    if (recs_ready()) {
+        $pdo->prepare("INSERT INTO rec_runs (run_ref, rec_id) VALUES (?,?)")->execute([$ref, rec_id()]);
+    } else {
+        $pdo->prepare("INSERT INTO rec_runs (run_ref) VALUES (?)")->execute([$ref]);
+    }
     $id = $pdo->lastInsertId();
     return $pdo->query("SELECT * FROM rec_runs WHERE id = " . (int)$id)->fetch();
 }
@@ -44,7 +49,8 @@ if (($_POST['action'] ?? '') === 'manual') {
 
         $fetch = function ($table, $ids) {
             $in = implode(',', array_fill(0, count($ids), '?'));
-            $st = db()->prepare("SELECT id, value FROM {$table} WHERE id IN ($in) AND matched_at IS NULL");
+            $st = db()->prepare("SELECT id, value FROM {$table} WHERE id IN ($in) AND matched_at IS NULL"
+                                . rec_and());
             $st->execute($ids);
             return $st->fetchAll();
         };
@@ -176,6 +182,7 @@ function list_items($side, $q, $from, $to, $skipIds, $show = 'open', $sortKey = 
 
     $col = sort_columns()[$sortKey] ?? 'txn_date';
     $d   = $dir === 'desc' ? 'DESC' : 'ASC';
+    $where[] = rec_where('t');
     $sql = "SELECT t.*, r.run_ref,
                    (SELECT l.group_id FROM rec_match_lines l
                      WHERE l.side = '{$side}' AND l.txn_id = t.id LIMIT 1) AS group_id
@@ -205,7 +212,7 @@ $bTot   = array_sum(array_map(fn($r) => (float)$r['value'], $bank));
 $lOpen  = array_sum(array_map(fn($r) => $r['matched_at'] === null ? 1 : 0, $ledger));
 $bOpen  = array_sum(array_map(fn($r) => $r['matched_at'] === null ? 1 : 0, $bank));
 $back   = array_filter(['lq' => $lq, 'bq' => $bq, 'from' => $from, 'to' => $to, 'show' => $show]);
-$rules  = (int)$pdo->query("SELECT COUNT(*) FROM rec_rules WHERE active = 1")->fetchColumn();
+$rules  = (int)$pdo->query("SELECT COUNT(*) FROM rec_rules WHERE active = 1" . rule_and())->fetchColumn();
 
 render_header('Transactions');
 ?>
@@ -266,8 +273,8 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
       <?= $rules ? '' : 'disabled title="Add a rule first"' ?>>Process rules</button>
     <span class="muted small"><?= $rules ?> active rule<?= $rules == 1 ? '' : 's' ?></span>
     <span style="margin-left:auto;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
-      <span class="balance" id="sumL">Ledger ticked 0.00</span>
-      <span class="balance" id="sumB">Bank ticked 0.00</span>
+      <span class="balance" id="sumL"><?= h(side_label('ledger')) ?> ticked 0.00</span>
+      <span class="balance" id="sumB"><?= h(side_label('bank')) ?> ticked 0.00</span>
       <span class="balance" id="diff">Difference 0.00</span>
       <button class="btn" type="submit" name="action" value="manual" id="manualBtn" disabled>
         Match ticked items</button>
@@ -279,8 +286,8 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
   <div class="sides">
 <?php
   $panels = [
-    ['ledger', 'Ledger &mdash; table 1', $ledger, $lOpen, $lTot, 'L', 'l', $lsort, $ldir, 'searchL', 'lq', $lq],
-    ['bank',   'Bank &mdash; table 2',   $bank,   $bOpen, $bTot, 'B', 'b', $bsort, $bdir, 'searchB', 'bq', $bq],
+    ['ledger', h(side_label('ledger')), $ledger, $lOpen, $lTot, 'L', 'l', $lsort, $ldir, 'searchL', 'lq', $lq],
+    ['bank',   h(side_label('bank')),   $bank,   $bOpen, $bTot, 'B', 'b', $bsort, $bdir, 'searchB', 'bq', $bq],
   ];
   foreach ($panels as [$side, $title, $rows, $openN, $tot, $tag, $pfx, $sortKey, $dir, $formId, $field, $val]):
     $tickFirst = ($side === 'bank');   // ledger ticks sit on the inside edge
@@ -346,6 +353,9 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
       matchBtn = document.getElementById('manualBtn'),
       unBtn = document.getElementById('unmatchBtn');
 
+  var LEFT_LABEL  = <?= json_encode(side_label('ledger'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+  var RIGHT_LABEL = <?= json_encode(side_label('bank'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+
   function fmt(n) { return n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
 
   function update() {
@@ -369,8 +379,8 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
       }
     });
 
-    elL.textContent = 'Ledger ticked ' + fmt(l) + ' (' + nL + ')';
-    elB.textContent = 'Bank ticked ' + fmt(b) + ' (' + nB + ')';
+    elL.textContent = LEFT_LABEL + ' ticked ' + fmt(l) + ' (' + nL + ')';
+    elB.textContent = RIGHT_LABEL + ' ticked ' + fmt(b) + ' (' + nB + ')';
 
     var mixed = nOpen > 0 && nMatched > 0;
     var unmatchMode = nMatched > 0 && nOpen === 0;
@@ -411,7 +421,7 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
       matchBtn.textContent = 'Match ticked items';
     } else if (oneSided) {
       var sideTotal = nL > 0 ? l : b, sideCount = nL > 0 ? nL : nB;
-      elD.textContent = (nL > 0 ? 'Ledger' : 'Bank') + ' ticked comes to ' + fmt(sideTotal);
+      elD.textContent = (nL > 0 ? LEFT_LABEL : RIGHT_LABEL) + ' ticked comes to ' + fmt(sideTotal);
       ok = sideCount >= 2 && Math.abs(sideTotal) < 0.005;
       matchBtn.textContent = 'Match as contra';
     } else {

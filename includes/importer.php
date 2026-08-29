@@ -340,20 +340,24 @@ function insert_transactions($side, array $rows, $sourceFile)
     if ($ready) {
         // record the file itself, so the whole batch can be removed again later
         $dates = array_column($rows, 0);
-        $imp = $pdo->prepare("INSERT INTO rec_imports (side, filename, row_count, total_value, date_from, date_to)
-                              VALUES (?,?,?,?,?,?)");
+        $recCol = recs_ready() ? ', rec_id' : '';
+        $recVal = recs_ready() ? ', ' . (int)rec_id() : '';
+        $imp = $pdo->prepare("INSERT INTO rec_imports (side, filename, row_count, total_value, date_from, date_to{$recCol})
+                              VALUES (?,?,?,?,?,?{$recVal})");
         $imp->execute([$side, $sourceFile, count($rows),
                        array_sum(array_column($rows, 2)),
                        $dates ? min($dates) : null,
                        $dates ? max($dates) : null]);
         $importId = (int)$pdo->lastInsertId();
 
-        $st = $pdo->prepare("INSERT INTO {$table} (txn_date, description, value, source_file, import_id)
-                             VALUES (?,?,?,?,?)");
+        $st = $pdo->prepare("INSERT INTO {$table} (txn_date, description, value, source_file, import_id{$recCol})
+                             VALUES (?,?,?,?,?{$recVal})");
         foreach ($rows as $r) $st->execute([$r[0], $r[1], $r[2], $sourceFile, $importId]);
     } else {
-        $st = $pdo->prepare("INSERT INTO {$table} (txn_date, description, value, source_file)
-                             VALUES (?,?,?,?)");
+        $col = recs_ready() ? ', rec_id' : '';
+        $val = recs_ready() ? ', ' . (int)rec_id() : '';
+        $st = $pdo->prepare("INSERT INTO {$table} (txn_date, description, value, source_file{$col})
+                             VALUES (?,?,?,?{$val})");
         foreach ($rows as $r) $st->execute([$r[0], $r[1], $r[2], $sourceFile]);
     }
     $pdo->commit();
@@ -373,7 +377,7 @@ function find_existing_duplicates($side, array $rows, $limit = 200)
     // pull existing rows once, for the date range of the file only
     $dates = array_column($rows, 0);
     $st = db()->prepare("SELECT id, txn_date, description, value, source_file, imported_at, matched_at
-                         FROM {$table} WHERE txn_date BETWEEN ? AND ?");
+                         FROM {$table} WHERE txn_date BETWEEN ? AND ?" . rec_and());
     $st->execute([min($dates), max($dates)]);
 
     $byKey = [];
@@ -404,7 +408,8 @@ function list_imports($side = null)
                    (SELECT COUNT(*) FROM rec_bank   t WHERE t.import_id = i.id AND t.matched_at IS NOT NULL) AS matched
             FROM rec_imports i";
     $args = [];
-    if ($side !== null) { $sql .= " WHERE i.side = ?"; $args[] = $side; }
+    $sql .= " WHERE " . rec_where('i');
+    if ($side !== null) { $sql .= " AND i.side = ?"; $args[] = $side; }
     $sql .= " ORDER BY i.imported_at DESC, i.id DESC";
     $st = db()->prepare($sql);
     $st->execute($args);

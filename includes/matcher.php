@@ -6,6 +6,7 @@
 // amount. Nothing in this file creates an unbalanced match.
 // -----------------------------------------------------------------------------
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/context.php';
 
 // The choices offered on the rule form ---------------------------------------
 function desc_ops() {
@@ -149,7 +150,7 @@ function load_open($side)
 {
     $table = $side === 'ledger' ? 'rec_ledger' : 'rec_bank';
     return db()->query("SELECT id, txn_date, description, value FROM {$table}
-                        WHERE matched_at IS NULL ORDER BY txn_date, id")->fetchAll();
+                        WHERE matched_at IS NULL" . rec_and() . " ORDER BY txn_date, id")->fetchAll();
 }
 
 // Transactions already spoken for by suggestions in this draft run.
@@ -288,7 +289,9 @@ function find_contra_pairs(array $pool, array &$used, $tol, $linkDesc)
 function run_rules($runId)
 {
     $pdo   = db();
-    $rules = $pdo->query("SELECT * FROM rec_rules WHERE active = 1 ORDER BY sort_order, id")->fetchAll();
+    // rules with no reconciliation of their own apply to every one
+    $rules = $pdo->query("SELECT * FROM rec_rules WHERE active = 1" . rule_and()
+                         . " ORDER BY sort_order, id")->fetchAll();
 
     $ledger = load_open('ledger');
     $bank   = load_open('bank');

@@ -25,7 +25,7 @@ $runs = $pdo->query(
             (SELECT COUNT(*) FROM rec_ledger  t WHERE t.run_id = r.id) ledger_n,
             (SELECT COUNT(*) FROM rec_bank    t WHERE t.run_id = r.id) bank_n,
             (SELECT COALESCE(SUM(t.value),0) FROM rec_ledger t WHERE t.run_id = r.id) ledger_v
-     FROM rec_runs r ORDER BY r.id DESC")->fetchAll();
+     FROM rec_runs r WHERE " . rec_where('r') . " ORDER BY r.id DESC")->fetchAll();
 
 render_header('Runs');
 ?>

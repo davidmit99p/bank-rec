@@ -185,7 +185,7 @@ render_header('Review ' . $run['run_ref']);
       </span>
     </header>
     <div class="sides">
-      <?php foreach (['ledger' => 'Ledger', 'bank' => 'Bank'] as $side => $label):
+      <?php foreach (['ledger' => side_label('ledger'), 'bank' => side_label('bank')] as $side => $label):
           $sideLines = array_values(array_filter($lines, fn($l) => $l['side'] === $side)); ?>
       <div>
         <span class="muted small"><?= $label ?></span>
