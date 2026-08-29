@@ -94,6 +94,13 @@ bank on the right. Two ways to match:
   each side and the difference between them; the button only comes alive when
   they agree. These are recorded against rule reference `manual`.
 
+**Downloading.** Each panel has a Download button giving a CSV of that list,
+with the same filters and order that are on screen - so narrow it down first and
+the download follows. Date, description and value, plus the status, rule, run,
+what a part was split out of, the source file and the reference, with a count
+and a total on the end so the figure can be checked against the screen. Mainly
+for working up journals for the items that are never going to match.
+
 **Splitting a transaction.** Sometimes one bank line covers more than one thing
 - an invoice of 161.10 and a 0.75 charge on the same payment. The scissors
 button beside a transaction opens a box to divide it into parts, each of which

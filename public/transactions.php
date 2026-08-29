@@ -2,6 +2,7 @@
 // Steps 4, 5, 7 and 8: the open items, the Process button, and manual matching.
 require_once __DIR__ . '/../includes/layout.php';
 require_once __DIR__ . '/../includes/matcher.php';
+require_once __DIR__ . '/../includes/txnlist.php';
 
 $pdo = db();
 
@@ -173,13 +174,6 @@ $wantOut = $virgin ? true : isset($_GET['out']);
 if (!$wantIn && !$wantOut) { $wantIn = $wantOut = true; }
 $sign = $wantIn && $wantOut ? 'both' : ($wantIn ? 'in' : 'out');
 
-// Column names allowed in an ORDER BY, so nothing from the address bar
-// reaches the query.
-function sort_columns()
-{
-    return ['date' => 'txn_date', 'description' => 'description', 'value' => 'value'];
-}
-
 // One clickable column heading. $side is 'l' for ledger or 'b' for bank, so the
 // two lists sort independently.
 function sort_head($label, $side, $key, $curKey, $curDir, $class = '')
@@ -196,48 +190,6 @@ function sort_head($label, $side, $key, $curKey, $curDir, $class = '')
 // $show is 'open', 'matched' or 'both'. Matched rows come back with the run
 // reference and the id of the match they belong to, so they can be unmatched
 // from here without going anywhere else.
-function list_items($side, $q, $from, $to, $skipIds, $show = 'open', $sortKey = 'date', $dir = 'asc',
-                    $sign = 'both')
-{
-    $table = $side === 'ledger' ? 'rec_ledger' : 'rec_bank';
-    $where = [];
-    $args  = [];
-
-    if ($show === 'open')    $where[] = 't.matched_at IS NULL';
-    if ($show === 'matched') $where[] = 't.matched_at IS NOT NULL';
-
-    if ($sign === 'in')  $where[] = 't.value > 0';
-    if ($sign === 'out') $where[] = 't.value < 0';
-
-    if ($q !== '')    { $where[] = 't.description LIKE ?'; $args[] = '%' . $q . '%'; }
-    if ($from !== '') { $where[] = 't.txn_date >= ?';      $args[] = $from; }
-    if ($to !== '')   { $where[] = 't.txn_date <= ?';      $args[] = $to; }
-    // items already claimed by the draft run are not available to tick again,
-    // but that only applies to the open ones
-    if ($skipIds && $show !== 'matched') {
-        $where[] = '(t.matched_at IS NOT NULL OR t.id NOT IN ('
-                 . implode(',', array_map('intval', $skipIds)) . '))';
-    }
-
-    $col = sort_columns()[$sortKey] ?? 'txn_date';
-    $d   = $dir === 'desc' ? 'DESC' : 'ASC';
-    $where[] = rec_where('t');
-    if (splits_ready()) $where[] = 't.split_at IS NULL';   // the parts stand in for it now
-    $parentVal = splits_ready()
-        ? ", (SELECT p.value FROM {$table} p WHERE p.id = t.parent_id) AS parent_value"
-        : ", NULL AS parent_value";
-    $sql = "SELECT t.*, r.run_ref{$parentVal},
-                   (SELECT l.group_id FROM rec_match_lines l
-                     WHERE l.side = '{$side}' AND l.txn_id = t.id LIMIT 1) AS group_id
-            FROM {$table} t
-            LEFT JOIN rec_runs r ON r.id = t.run_id"
-         . ($where ? ' WHERE ' . implode(' AND ', $where) : '')
-         . " ORDER BY t.{$col} {$d}, t.id";
-    $st = db()->prepare($sql);
-    $st->execute($args);
-    return $st->fetchAll();
-}
-
 // Items already sitting in the draft run are not available to tick again.
 $draft = current_draft();
 $claimL = $draft ? array_keys(ids_used_in_run($draft['id'], 'ledger')) : [];
@@ -357,6 +309,16 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
         <input type="text" name="<?= $field ?>" value="<?= h($val) ?>" form="<?= $formId ?>"
                placeholder="Search this side only...">
         <button class="btn ghost" type="submit" form="<?= $formId ?>">Search</button>
+        <?php
+          // the download takes the same filters as the screen, so what comes out
+          // is what you are looking at
+          $dl = ['side' => $side, 'q' => $val, 'from' => $from, 'to' => $to,
+                 'show' => $show, 'sort' => $sortKey, 'dir' => $dir];
+          if ($wantIn)  $dl['in']  = 1;
+          if ($wantOut) $dl['out'] = 1;
+        ?>
+        <a class="btn ghost" href="export.php?<?= h(http_build_query(array_filter($dl, fn($v) => $v !== ''))) ?>"
+           title="Download this list as a CSV, exactly as filtered">Download</a>
       </div>
 
       <div class="scroll">
