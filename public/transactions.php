@@ -25,6 +25,22 @@ function current_draft($create = false)
 
 $error = null;
 
+// Which transactions were ticked.
+//
+// The browser sends one compact field per side rather than one field per tick,
+// because PHP's max_input_vars defaults to 1000 and 'select all' can easily go
+// past that - it would drop the rest in silence, which is how the review screen
+// used to lose matches. The old one-field-per-tick form still works if
+// JavaScript is off.
+function posted_ids($side)
+{
+    $compact = $_POST[$side . '_ids'] ?? null;
+    if ($compact !== null) {
+        return array_values(array_filter(array_map('intval', explode(',', (string)$compact))));
+    }
+    return array_values(array_filter(array_map('intval', (array)($_POST[$side] ?? []))));
+}
+
 // --- Step 5: apply the rules -------------------------------------------------
 if (($_POST['action'] ?? '') === 'process') {
     $run = current_draft(true);
@@ -39,8 +55,8 @@ if (($_POST['action'] ?? '') === 'process') {
 
 // --- Step 8: manual match ----------------------------------------------------
 if (($_POST['action'] ?? '') === 'manual') {
-    $lIds = array_map('intval', $_POST['ledger'] ?? []);
-    $bIds = array_map('intval', $_POST['bank'] ?? []);
+    $lIds = posted_ids('ledger');
+    $bIds = posted_ids('bank');
     try {
         if (!$lIds && !$bIds) throw new RuntimeException('Tick some items first.');
         // Ticking only one side is allowed when those entries cancel each other
@@ -151,7 +167,7 @@ if (($_POST['action'] ?? '') === 'unsplit') {
 
 // --- unmatching, when matched items are on show ------------------------------
 if (($_POST['action'] ?? '') === 'unmatch') {
-    [$ok, $msg] = unmatch_selection($_POST['ledger'] ?? [], $_POST['bank'] ?? []);
+    [$ok, $msg] = unmatch_selection(posted_ids('ledger'), posted_ids('bank'));
     if ($ok) {
         flash($msg);
         header('Location: transactions.php?' . http_build_query($_POST['back'] ?? []));
@@ -275,6 +291,8 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
 </form>
 
 <form method="post" id="txnForm">
+  <input type="hidden" name="ledger_ids" id="ledgerIds" disabled>
+  <input type="hidden" name="bank_ids"   id="bankIds"   disabled>
   <?php foreach ($back as $k => $v): ?>
     <input type="hidden" name="back[<?= h($k) ?>]" value="<?= h($v) ?>">
   <?php endforeach; ?>
@@ -327,11 +345,17 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
       <div class="scroll">
         <table>
           <thead><tr>
-            <?php if ($tickFirst) echo '<th style="width:3.2rem"></th>'; ?>
+            <?php
+              $allBox = '<th style="width:3.2rem" class="center">'
+                . '<input type="checkbox" class="selectall" data-for="' . $tag . '"'
+                . ' title="Tick or untick everything shown on this side">'
+                . '</th>';
+              if ($tickFirst) echo $allBox;
+            ?>
             <?= sort_head('Date', $pfx, 'date', $sortKey, $dir) ?>
             <?= sort_head('Description', $pfx, 'description', $sortKey, $dir) ?>
             <?= sort_head('Value', $pfx, 'value', $sortKey, $dir, 'num') ?>
-            <?php if (!$tickFirst) echo '<th style="width:3.2rem"></th>'; ?>
+            <?php if (!$tickFirst) echo $allBox; ?>
           </tr></thead>
           <tbody>
           <?php foreach ($rows as $t):
@@ -467,8 +491,47 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
     matchBtn.disabled = !ok;
   }
 
-  form.addEventListener('change', function (e) { if (e.target.classList.contains('tick')) update(); });
+  // Keep each panel's heading box in step: ticked when everything on that side
+  // is ticked, part-ticked when only some of it is.
+  function refreshHeadings() {
+    form.querySelectorAll('.selectall').forEach(function (head) {
+      var boxes = form.querySelectorAll('.tick[data-side="' + head.dataset.for + '"]');
+      var on = 0;
+      boxes.forEach(function (c) { if (c.checked) on++; });
+      head.checked = boxes.length > 0 && on === boxes.length;
+      head.indeterminate = on > 0 && on < boxes.length;
+      head.disabled = boxes.length === 0;
+    });
+  }
+
+  form.addEventListener('change', function (e) {
+    if (e.target.classList.contains('selectall')) {
+      var on = e.target.checked;
+      form.querySelectorAll('.tick[data-side="' + e.target.dataset.for + '"]')
+          .forEach(function (c) { c.checked = on; });
+      update();
+      refreshHeadings();
+      return;
+    }
+    if (e.target.classList.contains('tick')) { update(); refreshHeadings(); }
+  });
+
+  // Send the ticked ids as one field per side, and stop the tick boxes posting
+  // at all. Selecting a few hundred rows would otherwise go past PHP's
+  // max_input_vars and lose the rest without saying so.
+  form.addEventListener('submit', function () {
+    var ids = { L: [], B: [] };
+    form.querySelectorAll('.tick').forEach(function (c) {
+      if (c.checked) ids[c.dataset.side].push(c.value);
+      c.disabled = true;                      // disabled inputs are not submitted
+    });
+    var l = document.getElementById('ledgerIds'), b = document.getElementById('bankIds');
+    l.value = ids.L.join(','); l.disabled = false;
+    b.value = ids.B.join(','); b.disabled = false;
+  });
+
   update();
+  refreshHeadings();
 })();
 </script>
 <?php if (splits_ready()): ?>
