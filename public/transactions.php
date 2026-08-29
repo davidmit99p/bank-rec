@@ -193,17 +193,36 @@ $wantOut = $virgin ? true : isset($_GET['out']);
 if (!$wantIn && !$wantOut) { $wantIn = $wantOut = true; }
 $sign = $wantIn && $wantOut ? 'both' : ($wantIn ? 'in' : 'out');
 
-// One clickable column heading. $side is 'l' for ledger or 'b' for bank, so the
-// two lists sort independently.
-function sort_head($label, $side, $key, $curKey, $curDir, $class = '')
+// One clickable sort link. $side is 'l' for ledger or 'b' for bank, so the two
+// lists sort independently.
+function sort_link($label, $side, $key, $curKey, $curDir, $title = '')
 {
     $params = $_GET;
     $params[$side . 's'] = $key;
     $params[$side . 'd'] = ($curKey === $key && $curDir === 'asc') ? 'desc' : 'asc';
     $arrow = $curKey === $key ? ($curDir === 'asc' ? ' &uarr;' : ' &darr;') : '';
+    $style = $curKey === $key ? 'color:var(--accent);font-weight:700' : 'color:inherit';
+    return '<a href="?' . h(http_build_query($params)) . '"'
+         . ($title ? ' title="' . h($title) . '"' : '')
+         . ' style="text-decoration:none;' . $style . '">' . h($label) . $arrow . '</a>';
+}
+
+function sort_head($label, $side, $key, $curKey, $curDir, $class = '')
+{
     return '<th' . ($class ? ' class="' . $class . '"' : '') . '>'
-         . '<a href="?' . h(http_build_query($params)) . '" style="text-decoration:none;color:inherit">'
-         . h($label) . $arrow . '</a></th>';
+         . sort_link($label, $side, $key, $curKey, $curDir) . '</th>';
+}
+
+// The value heading carries two sorts: the ordinary one, and one by size that
+// ignores the sign so an amount and its reversal end up side by side.
+function value_head($side, $curKey, $curDir)
+{
+    return '<th class="num">'
+         . sort_link('Value', $side, 'value', $curKey, $curDir, 'Sort by value')
+         . ' <span class="muted">&middot;</span> '
+         . sort_link("Â±", $side, 'abs', $curKey, $curDir,
+                     'Sort by size, ignoring the sign, so an amount and its reversal sit together')
+         . '</th>';
 }
 
 // $show is 'open', 'matched' or 'both'. Matched rows come back with the run
@@ -354,7 +373,7 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
             ?>
             <?= sort_head('Date', $pfx, 'date', $sortKey, $dir) ?>
             <?= sort_head('Description', $pfx, 'description', $sortKey, $dir) ?>
-            <?= sort_head('Value', $pfx, 'value', $sortKey, $dir, 'num') ?>
+            <?= value_head($pfx, $sortKey, $dir) ?>
             <?php if (!$tickFirst) echo $allBox; ?>
           </tr></thead>
           <tbody>

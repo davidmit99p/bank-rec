@@ -95,6 +95,11 @@ bank on the right. Two ways to match:
   each side and the difference between them; the button only comes alive when
   they agree. These are recorded against rule reference `manual`.
 
+Each side has its own search box, its own sort, and a box in the heading that
+ticks everything shown - so you can filter to one supplier and take the lot in
+one go. Next to the Value heading, **±** sorts by size and ignores the sign, so
+an amount and its reversal sit together, which is how you spot a contra.
+
 **Downloading.** Each panel has a Download button giving a CSV of that list,
 with the same filters and order that are on screen - so narrow it down first and
 the download follows. Date, description and value, plus the status, rule, run,

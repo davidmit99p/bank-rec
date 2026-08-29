@@ -13,7 +13,24 @@ require_once __DIR__ . '/splits.php';
 // reaches the query.
 function sort_columns()
 {
-    return ['date' => 'txn_date', 'description' => 'description', 'value' => 'value'];
+    return ['date'        => 'txn_date',
+            'description' => 'description',
+            'value'       => 'value',
+            'abs'         => 'value'];   // by size, ignoring the sign
+}
+
+// The ORDER BY for a sort choice.
+//
+// 'abs' sorts by size and ignores the sign, so 100.00 and -100.00 sit next to
+// each other - which is how you spot a pair that cancels out. Within the same
+// size the negative comes first, so a contra reads as a pair rather than
+// arriving in whatever order the database felt like.
+function order_expression($sortKey, $dir)
+{
+    $d = $dir === 'desc' ? 'DESC' : 'ASC';
+    if ($sortKey === 'abs') return "ABS(t.value) {$d}, t.value ASC, t.id";
+    $col = sort_columns()[$sortKey] ?? 'txn_date';
+    return "t.{$col} {$d}, t.id";
 }
 
 function list_items($side, $q, $from, $to, $skipIds, $show = 'open', $sortKey = 'date', $dir = 'asc',
@@ -39,8 +56,6 @@ function list_items($side, $q, $from, $to, $skipIds, $show = 'open', $sortKey = 
                  . implode(',', array_map('intval', $skipIds)) . '))';
     }
 
-    $col = sort_columns()[$sortKey] ?? 'txn_date';
-    $d   = $dir === 'desc' ? 'DESC' : 'ASC';
     $where[] = rec_where('t');
     if (splits_ready()) $where[] = 't.split_at IS NULL';   // the parts stand in for it now
     $parentVal = splits_ready()
@@ -52,7 +67,7 @@ function list_items($side, $q, $from, $to, $skipIds, $show = 'open', $sortKey = 
             FROM {$table} t
             LEFT JOIN rec_runs r ON r.id = t.run_id"
          . ($where ? ' WHERE ' . implode(' AND ', $where) : '')
-         . " ORDER BY t.{$col} {$d}, t.id";
+         . " ORDER BY " . order_expression($sortKey, $dir);
     $st = db()->prepare($sql);
     $st->execute($args);
     return $st->fetchAll();
