@@ -20,9 +20,13 @@ if (!$ledgerFile || !$bankFile) {
 
 function load($path)
 {
-    $rows = read_table($path, $path);
-    $map  = guess_columns($rows[0]);
-    [$txns, $skipped] = build_transactions($rows, $map, looks_like_header($rows[0]));
+    $rows  = read_table($path, $path);
+    $start = find_data_start($rows);
+    $head  = ($start > 0 && looks_like_header($rows[$start - 1] ?? [])) ? $rows[$start - 1] : null;
+    $map   = $head ? guess_columns($head) : ['date' => null, 'description' => null, 'value' => null];
+    $fromData = guess_columns_from_row($rows[$start] ?? []);
+    foreach ($map as $k => $v) if ($v === null) $map[$k] = $fromData[$k];
+    [$txns, $skipped] = build_transactions($rows, $map, $start);
     $out = [];
     foreach ($txns as $i => $t) {
         $out[] = ['id' => $i + 1, 'txn_date' => $t[0], 'description' => $t[1], 'value' => $t[2]];

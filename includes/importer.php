@@ -29,11 +29,22 @@ function read_delimited($path)
     fwrite($fh, $raw);
     rewind($fh);
     while (($r = fgetcsv($fh, 0, $delim)) !== false) {
-        if ($r === [null]) continue;                            // blank line
+        if (row_is_blank($r)) continue;
         $rows[] = $r;
     }
     fclose($fh);
     return $rows;
+}
+
+// Excel happily exports thousands of empty trailing rows when a sheet has had
+// formatting applied below the data. They are not transactions.
+function row_is_blank($r)
+{
+    if (!is_array($r)) return true;
+    foreach ($r as $c) {
+        if (trim((string)$c) !== '') return false;
+    }
+    return true;
 }
 
 function read_xlsx($path)
@@ -184,14 +195,68 @@ function looks_like_header(array $row)
     return true;
 }
 
+// A transaction row has a date in one cell and an amount in a different one.
+function row_looks_like_transaction(array $row)
+{
+    $dateCols = [];
+    $amountCols = [];
+    foreach ($row as $c => $v) {
+        $isAmount = parse_amount($v) !== null;
+        if (parse_date($v) !== null && !$isAmount) $dateCols[] = $c;
+        if ($isAmount) $amountCols[] = $c;
+    }
+    return $dateCols && $amountCols;
+}
+
+// Reports often begin with a title, a date range and some blank lines before
+// the transactions start. Find the first row that is actually a transaction.
+// Returns a 0-based index, or 0 if nothing looks like one.
+function find_data_start(array $rows)
+{
+    foreach ($rows as $i => $r) {
+        if (row_is_blank($r)) continue;
+        if (row_looks_like_transaction($r)) return $i;
+    }
+    return 0;
+}
+
+// Work out which column is which by looking at a real transaction row, rather
+// than at column headings that may not exist.
+function guess_columns_from_row(array $row)
+{
+    $date = null;
+    $value = null;
+    foreach ($row as $c => $v) {
+        if ($date === null && parse_date($v) !== null && parse_amount($v) === null) $date = $c;
+    }
+    // the value is the last cell that reads as a number - statements often put
+    // a running balance after it, but the amount is the one we want, so prefer
+    // the first number that is not the date
+    foreach ($row as $c => $v) {
+        if ($c === $date) continue;
+        if (parse_amount($v) !== null) { $value = $c; break; }
+    }
+    // the description is the longest piece of text that is neither of those
+    $desc = null;
+    $bestLen = 0;
+    foreach ($row as $c => $v) {
+        if ($c === $date || $c === $value) continue;
+        $len = mb_strlen(trim((string)$v));
+        if ($len > $bestLen) { $bestLen = $len; $desc = $c; }
+    }
+    return ['date' => $date, 'description' => $desc, 'value' => $value];
+}
+
 function parse_date($raw)
 {
     $s = trim((string)$raw);
     if ($s === '') return null;
     if (preg_match('/^\d{4}-\d{2}-\d{2}/', $s)) return substr($s, 0, 10);
     // a bare Excel serial that slipped through
-    if (is_numeric($s) && $s > 20000 && $s < 60000 && strpos($s, '.') === false) {
-        return excel_serial_to_date((float)$s);
+    if (is_numeric($s)) {
+        return ($s > 20000 && $s < 60000 && strpos($s, '.') === false)
+            ? excel_serial_to_date((float)$s)
+            : null;                       // any other plain number is an amount, not a date
     }
     // UK style first: 02/01/2019 is 2 January
     if (preg_match('#^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})#', $s, $m)) {
@@ -207,11 +272,18 @@ function parse_amount($raw)
 {
     $s = trim((string)$raw);
     if ($s === '') return null;
+
+    // A date is not an amount. Without this, stripping the separators out of
+    // "02/01/2019" would leave 02012019, which reads as two million pounds.
+    if (preg_match('#^\d{1,4}[/.\-]\d{1,2}[/.\-]\d{2,4}#', $s)) return null;
+
     $neg = false;
-    if (preg_match('/^\((.*)\)$/', $s, $m)) { $neg = true; $s = $m[1]; }   // (123.45) means -123.45
-    if (substr($s, -3) === ' CR') { $s = substr($s, 0, -3); }
-    if (substr($s, -3) === ' DR') { $s = substr($s, 0, -3); $neg = true; }
-    $s = preg_replace('/[^0-9.,\-+]/', '', $s);                            // drop currency symbols
+    if (preg_match('/^\((.*)\)$/', $s, $m)) { $neg = true; $s = trim($m[1]); }  // (123.45) means -123.45
+    if (preg_match('/\s*(CR|DR)$/i', $s, $m)) {                                 // 123.45 DR means -123.45
+        if (strtoupper($m[1]) === 'DR') $neg = true;
+        $s = trim(preg_replace('/\s*(CR|DR)$/i', '', $s));
+    }
+    $s = preg_replace('/[^0-9.,\-+]/', '', $s);                                 // drop currency symbols
     $s = str_replace(',', '', $s);
     if ($s === '' || !is_numeric($s)) return null;
     $v = (float)$s;
@@ -219,13 +291,15 @@ function parse_amount($raw)
 }
 
 // Turn raw rows into transactions ready for the database.
+// $startRow is a 0-based index: everything above it is ignored.
 // Returns [rows, skipped] where each row is [date, description, value].
-function build_transactions(array $rows, array $map, $skipFirst)
+function build_transactions(array $rows, array $map, $startRow = 0)
 {
+    $startRow = (int)$startRow;
     $out = [];
     $skipped = 0;
     foreach ($rows as $i => $r) {
-        if ($skipFirst && $i === 0) continue;
+        if ($i < $startRow) continue;
         $date  = parse_date($r[$map['date']] ?? '');
         $value = parse_amount($r[$map['value']] ?? '');
         $desc  = trim(preg_replace('/\s+/', ' ', (string)($r[$map['description']] ?? '')));
