@@ -23,17 +23,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $run['status'] === 'draft') {
         exit;
     }
 
-    // save the ticks first, whichever button was pressed
-    $keep = array_map('intval', $_POST['accept'] ?? []);
-    $pdo->prepare("UPDATE rec_match_groups SET accepted = 0 WHERE run_id = ?")->execute([$runId]);
-    if ($keep) {
-        $in = implode(',', array_fill(0, count($keep), '?'));
-        $pdo->prepare("UPDATE rec_match_groups SET accepted = 1 WHERE run_id = ? AND id IN ($in)")
-            ->execute(array_merge([$runId], $keep));
+    // Save the ticks, whichever button was pressed.
+    //
+    // We send the UNTICKED ones as a single field rather than one value per
+    // ticked match. PHP's max_input_vars defaults to 1000, so a big run used to
+    // lose everything past the 999th silently - it looked like the whole screen
+    // had been finalised when it had not.
+    if (($_POST['mode'] ?? '') === 'rejected') {
+        $rejected = array_filter(array_map('intval', explode(',', (string)($_POST['rejected'] ?? ''))));
+        $pdo->prepare("UPDATE rec_match_groups SET accepted = 1 WHERE run_id = ?")->execute([$runId]);
+        if ($rejected) {
+            $in = implode(',', array_fill(0, count($rejected), '?'));
+            $pdo->prepare("UPDATE rec_match_groups SET accepted = 0 WHERE run_id = ? AND id IN ($in)")
+                ->execute(array_merge([$runId], $rejected));
+        }
+    } else {
+        // Fallback for a browser with JavaScript switched off.
+        $groupCount = (int)$pdo->query("SELECT COUNT(*) FROM rec_match_groups WHERE run_id = " . (int)$runId)->fetchColumn();
+        $limit = (int)ini_get('max_input_vars') ?: 1000;
+        if ($groupCount > $limit - 10) {
+            $error = "This run has {$groupCount} matches, which is more than this server can accept from a "
+                   . "form with JavaScript switched off (the limit is {$limit}). Nothing has been changed. "
+                   . "Switch JavaScript on, or finalise in smaller runs.";
+        } else {
+            $keep = array_map('intval', $_POST['accept'] ?? []);
+            $pdo->prepare("UPDATE rec_match_groups SET accepted = 0 WHERE run_id = ?")->execute([$runId]);
+            if ($keep) {
+                $in = implode(',', array_fill(0, count($keep), '?'));
+                $pdo->prepare("UPDATE rec_match_groups SET accepted = 1 WHERE run_id = ? AND id IN ($in)")
+                    ->execute(array_merge([$runId], $keep));
+            }
+        }
     }
     $pdo->prepare("UPDATE rec_runs SET note = ? WHERE id = ?")->execute([trim($_POST['note'] ?? ''), $runId]);
 
-    if ($action === 'finalise') {
+    if ($error !== null) {
+        // the fallback above refused to save - fall through and redisplay
+    } elseif ($action === 'finalise') {
         [$ok, $msg] = finalise_run($runId);
         if ($ok) { flash($msg . ' Run ' . $run['run_ref'] . ' is finalised.'); header('Location: transactions.php'); exit; }
         $error = $msg;
@@ -87,8 +113,10 @@ render_header('Review ' . $run['run_ref']);
     <a href="transactions.php">Back to transactions</a>.</p></div>
 <?php else: ?>
 
-<form method="post">
+<form method="post" id="reviewForm">
   <input type="hidden" name="run" value="<?= $runId ?>">
+  <input type="hidden" name="mode" id="mode" value="">
+  <input type="hidden" name="rejected" id="rejected" value="">
 
   <?php if ($run['status'] === 'draft'): ?>
   <div class="panel" style="position:sticky;top:0;z-index:5;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
@@ -114,7 +142,7 @@ render_header('Review ' . $run['run_ref']);
     <header>
       <?php if ($run['status'] === 'draft'): ?>
         <input type="checkbox" name="accept[]" value="<?= (int)$g['id'] ?>" class="acc"
-               <?= $g['accepted'] ? 'checked' : '' ?> style="width:auto">
+               data-id="<?= (int)$g['id'] ?>" <?= $g['accepted'] ? 'checked' : '' ?> style="width:auto">
       <?php endif; ?>
       <span class="tag <?= $g['rule_ref'] === 'manual' ? 'manual' : '' ?>">
         <?= $g['rule_ref'] === 'manual' ? 'Manual' : 'Rule ' . h($g['rule_ref']) ?></span>
@@ -169,6 +197,19 @@ function refresh() {
 }
 document.addEventListener('change', function (e) { if (e.target.classList.contains('acc')) refresh(); });
 refresh();
+
+// Send the UNTICKED matches as one field, and stop the tick boxes posting at
+// all. A run of any size then fits well inside PHP's max_input_vars, which
+// defaults to 1000 and used to swallow everything past the 999th in silence.
+document.getElementById('reviewForm').addEventListener('submit', function () {
+  var rejected = [];
+  document.querySelectorAll('.acc').forEach(function (c) {
+    if (!c.checked) rejected.push(c.dataset.id);
+    c.disabled = true;                       // disabled inputs are not submitted
+  });
+  document.getElementById('rejected').value = rejected.join(',');
+  document.getElementById('mode').value = 'rejected';
+});
 </script>
 <?php endif; ?>
 <?php render_footer(); ?>
