@@ -64,14 +64,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $run['status'] === 'draft') {
         if ($ok) { flash($msg . ' Run ' . $run['run_ref'] . ' is finalised.'); header('Location: transactions.php'); exit; }
         $error = $msg;
     } else {
-        flash('Ticks saved. Nothing has been committed yet.');
-        header('Location: review.php?run=' . $runId);
+        // "sort" is just a save that keeps your ticks and comes back in a
+        // different order, so changing the order never loses your work.
+        $back = 'review.php?run=' . $runId;
+        if (!empty($_POST['gsort'])) $back .= '&gsort=' . urlencode($_POST['gsort']);
+        if ($action !== 'sort') flash('Ticks saved. Nothing has been committed yet.');
+        header('Location: ' . $back);
         exit;
     }
 }
 
+// How the suggestions are ordered on screen. Whitelisted, so nothing from the
+// address bar reaches the query.
+$groupSorts = [
+    'match'  => ["rule_ref='manual', group_no",            'Match number'],
+    'rule'   => ["rule_ref='manual', rule_ref, group_no",  'Rule'],
+    'big'    => ['ABS(ledger_total) DESC, group_no',       'Amount, largest first'],
+    'small'  => ['ABS(ledger_total) ASC, group_no',        'Amount, smallest first'],
+];
+$gsort = isset($groupSorts[$_GET['gsort'] ?? '']) ? $_GET['gsort'] : 'match';
+
 // load the suggestions with their lines
-$groups = $pdo->prepare("SELECT * FROM rec_match_groups WHERE run_id = ? ORDER BY rule_ref='manual', group_no");
+$groups = $pdo->prepare("SELECT * FROM rec_match_groups WHERE run_id = ? ORDER BY " . $groupSorts[$gsort][0]);
 $groups->execute([$runId]);
 $groups = $groups->fetchAll();
 
@@ -126,6 +140,13 @@ render_header('Review ' . $run['run_ref']);
     <button class="btn ghost" type="submit" name="action" value="save">Save ticks for later</button>
     <button class="btn ghost" type="button" onclick="setAll(true)">Tick all</button>
     <button class="btn ghost" type="button" onclick="setAll(false)">Untick all</button>
+    <label style="margin:0;display:flex;align-items:center;gap:.4rem">Order
+      <select name="gsort" onchange="document.getElementById('sortBtn').click()" style="width:auto">
+        <?php foreach ($groupSorts as $k => $g): ?>
+          <option value="<?= $k ?>"<?= $gsort === $k ? ' selected' : '' ?>><?= h($g[1]) ?></option>
+        <?php endforeach; ?>
+      </select></label>
+    <button class="btn ghost" type="submit" name="action" value="sort" id="sortBtn">Sort</button>
     <span class="balance" id="counter" style="margin-left:auto"></span>
     <button class="btn ghost" type="submit" name="action" value="discard"
       onclick="return confirm('Throw away this whole run? Nothing will be committed.')"

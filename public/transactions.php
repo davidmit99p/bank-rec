@@ -90,7 +90,27 @@ $q    = trim($_GET['q'] ?? '');
 $from = trim($_GET['from'] ?? '');
 $to   = trim($_GET['to'] ?? '');
 
-function open_items($table, $q, $from, $to, $skipIds)
+// Column names allowed in an ORDER BY, so nothing from the address bar
+// reaches the query.
+function sort_columns()
+{
+    return ['date' => 'txn_date', 'description' => 'description', 'value' => 'value'];
+}
+
+// One clickable column heading. $side is 'l' for ledger or 'b' for bank, so the
+// two lists sort independently.
+function sort_head($label, $side, $key, $curKey, $curDir, $class = '')
+{
+    $params = $_GET;
+    $params[$side . 's'] = $key;
+    $params[$side . 'd'] = ($curKey === $key && $curDir === 'asc') ? 'desc' : 'asc';
+    $arrow = $curKey === $key ? ($curDir === 'asc' ? ' &uarr;' : ' &darr;') : '';
+    return '<th' . ($class ? ' class="' . $class . '"' : '') . '>'
+         . '<a href="?' . h(http_build_query($params)) . '" style="text-decoration:none;color:inherit">'
+         . h($label) . $arrow . '</a></th>';
+}
+
+function open_items($table, $q, $from, $to, $skipIds, $sortKey = 'date', $dir = 'asc')
 {
     $where = ['matched_at IS NULL'];
     $args  = [];
@@ -98,7 +118,10 @@ function open_items($table, $q, $from, $to, $skipIds)
     if ($from !== '') { $where[] = 'txn_date >= ?';      $args[] = $from; }
     if ($to !== '')   { $where[] = 'txn_date <= ?';      $args[] = $to; }
     if ($skipIds)     { $where[] = 'id NOT IN (' . implode(',', array_map('intval', $skipIds)) . ')'; }
-    $st = db()->prepare("SELECT * FROM {$table} WHERE " . implode(' AND ', $where) . " ORDER BY txn_date, id");
+    $col = sort_columns()[$sortKey] ?? 'txn_date';
+    $d   = $dir === 'desc' ? 'DESC' : 'ASC';
+    $st = db()->prepare("SELECT * FROM {$table} WHERE " . implode(' AND ', $where)
+                        . " ORDER BY {$col} {$d}, id");
     $st->execute($args);
     return $st->fetchAll();
 }
@@ -108,8 +131,13 @@ $draft = current_draft();
 $claimL = $draft ? array_keys(ids_used_in_run($draft['id'], 'ledger')) : [];
 $claimB = $draft ? array_keys(ids_used_in_run($draft['id'], 'bank'))   : [];
 
-$ledger = open_items('rec_ledger', $q, $from, $to, $claimL);
-$bank   = open_items('rec_bank',   $q, $from, $to, $claimB);
+$lsort = isset(sort_columns()[$_GET['ls'] ?? '']) ? $_GET['ls'] : 'date';
+$ldir  = ($_GET['ld'] ?? 'asc') === 'desc' ? 'desc' : 'asc';
+$bsort = isset(sort_columns()[$_GET['bs'] ?? '']) ? $_GET['bs'] : 'date';
+$bdir  = ($_GET['bd'] ?? 'asc') === 'desc' ? 'desc' : 'asc';
+
+$ledger = open_items('rec_ledger', $q, $from, $to, $claimL, $lsort, $ldir);
+$bank   = open_items('rec_bank',   $q, $from, $to, $claimB, $bsort, $bdir);
 $lTot   = array_sum(array_map(fn($r) => (float)$r['value'], $ledger));
 $bTot   = array_sum(array_map(fn($r) => (float)$r['value'], $bank));
 $rules  = (int)$pdo->query("SELECT COUNT(*) FROM rec_rules WHERE active = 1")->fetchColumn();
@@ -161,7 +189,11 @@ both sides and match them yourself.</p>
           <span class="num <?= $lTot < 0 ? 'neg' : '' ?>"><?= money($lTot) ?></span></span></div>
       <div class="scroll">
         <table>
-          <thead><tr><th>Date</th><th>Description</th><th class="num">Value</th><th style="width:1.5rem"></th></tr></thead>
+          <thead><tr>
+            <?= sort_head('Date', 'l', 'date', $lsort, $ldir) ?>
+            <?= sort_head('Description', 'l', 'description', $lsort, $ldir) ?>
+            <?= sort_head('Value', 'l', 'value', $lsort, $ldir, 'num') ?>
+            <th style="width:1.5rem"></th></tr></thead>
           <tbody>
           <?php foreach ($ledger as $t): ?>
             <tr><td class="small"><?= h($t['txn_date']) ?></td>
@@ -182,7 +214,11 @@ both sides and match them yourself.</p>
           <span class="num <?= $bTot < 0 ? 'neg' : '' ?>"><?= money($bTot) ?></span></span></div>
       <div class="scroll">
         <table>
-          <thead><tr><th style="width:1.5rem"></th><th>Date</th><th>Description</th><th class="num">Value</th></tr></thead>
+          <thead><tr><th style="width:1.5rem"></th>
+            <?= sort_head('Date', 'b', 'date', $bsort, $bdir) ?>
+            <?= sort_head('Description', 'b', 'description', $bsort, $bdir) ?>
+            <?= sort_head('Value', 'b', 'value', $bsort, $bdir, 'num') ?>
+            </tr></thead>
           <tbody>
           <?php foreach ($bank as $t): ?>
             <tr><td><input type="checkbox" name="bank[]" value="<?= (int)$t['id'] ?>"
