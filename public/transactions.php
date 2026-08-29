@@ -48,10 +48,13 @@ if (($_POST['action'] ?? '') === 'manual') {
         // bank to match them against, but they still net to nothing.
         $oneSided = (!$lIds || !$bIds);
 
+        // A contra ticks one side only, so the other side's list is empty.
+        // "IN ()" is not valid SQL, so answer that case without asking.
         $fetch = function ($table, $ids) {
+            if (!$ids) return [];
             $in = implode(',', array_fill(0, count($ids), '?'));
             $st = db()->prepare("SELECT id, value FROM {$table} WHERE id IN ($in) AND matched_at IS NULL"
-                                . rec_and());
+                                . rec_and() . not_split());
             $st->execute($ids);
             return $st->fetchAll();
         };
