@@ -169,8 +169,9 @@ This layout is a workaround for the plan limits, not the ideal.
    subdomain, which is why the app is in a folder of an existing site.
 2. Raise the **database allowance** on `davidmitchell.me.uk` - it was full at
    2 of 2, which is why the database lives on the daveslist subscription.
-3. Enable the **`zip` PHP extension** - without it the tool cannot read `.xlsx`
-   files and you have to save spreadsheets as CSV first. No code change needed.
+3. Enable the **`zip` PHP extension** - no longer necessary, since the tool now
+   unpacks `.xlsx` files itself using zlib, but it would be tidier and a little
+   faster to use the proper extension.
 
 You will hit the first two again with Process Manager.
 

@@ -57,10 +57,11 @@ particular to that account.
 Requires PHP 8.0 or later. Built and tested on 8.5.9, which is what
 davidmitchell.me.uk runs.
 
-Reading `.xlsx` files needs the standard `zip` extension. **It is not enabled
-on davidmitchell.me.uk**, so on the live site you must save spreadsheets as CSV
-before importing. The tool says so plainly rather than failing oddly. Enabling
-`zip` is one line of server configuration and needs no code change.
+Reading `.xlsx` files normally uses the `zip` extension, which is **not** enabled
+on davidmitchell.me.uk. When it is missing the tool unpacks the workbook itself,
+which needs only zlib's `gzinflate` - far more commonly present. Both routes were
+checked against the same real workbooks and produce byte-identical results, so
+`.xlsx` files import either way and nothing needs saving as CSV first.
 
 ## Using it
 

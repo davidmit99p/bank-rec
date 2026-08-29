@@ -48,18 +48,113 @@ function row_is_blank($r)
     return true;
 }
 
-function read_xlsx($path)
+// -----------------------------------------------------------------------------
+// An .xlsx is a zip full of XML files.
+//
+// The tidy way to open one is the zip extension, but this server does not have
+// it. So when it is missing we unpack the zip ourselves, which needs nothing
+// but zlib's gzinflate - far more commonly present. Same result either way;
+// the rest of the file has no idea which route was taken.
+// -----------------------------------------------------------------------------
+
+// Only the parts of the workbook that hold data. An .xlsx can also carry images
+// and fonts, and there is no sense unpacking those into memory.
+function xlsx_wanted($name)
 {
-    if (!class_exists('ZipArchive')) {
-        throw new RuntimeException('This server cannot open Excel files. Please save the file as CSV and upload that.');
+    return $name === 'xl/sharedStrings.xml'
+        || $name === 'xl/styles.xml'
+        || (strpos($name, 'xl/worksheets/') === 0 && substr($name, -4) === '.xml');
+}
+
+// Returns [name => contents] for the parts we care about.
+function xlsx_entries($path, $forcePure = false)
+{
+    if (!$forcePure && class_exists('ZipArchive')) {
+        $zip = new ZipArchive();
+        if ($zip->open($path) !== true) throw new RuntimeException('That does not look like a valid Excel file.');
+        $out = [];
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $name = $zip->getNameIndex($i);
+            if (!xlsx_wanted($name)) continue;
+            $data = $zip->getFromIndex($i);
+            if ($data !== false) $out[$name] = $data;
+        }
+        $zip->close();
+        return $out;
     }
-    $zip = new ZipArchive();
-    if ($zip->open($path) !== true) throw new RuntimeException('That does not look like a valid Excel file.');
+    return xlsx_entries_without_zip($path);
+}
+
+// Read the zip by hand. The structure is simple enough: a directory at the end
+// of the file lists every entry and says where its data begins.
+function xlsx_entries_without_zip($path)
+{
+    if (!function_exists('gzinflate')) {
+        throw new RuntimeException('This server can open neither Excel files nor compressed data '
+            . '(it has neither the zip extension nor zlib). Please save the file as CSV and upload that.');
+    }
+    $data = file_get_contents($path);
+    if ($data === false || strlen($data) < 22) throw new RuntimeException('Could not read that file.');
+    $len = strlen($data);
+
+    // The end-of-directory record sits at the very end, but a zip may carry a
+    // comment after it of up to 64k, so look backwards for the signature.
+    $eocd = -1;
+    $stop = max(0, $len - 65557);
+    for ($i = $len - 22; $i >= $stop; $i--) {
+        if (substr($data, $i, 4) === "PK\x05\x06") { $eocd = $i; break; }
+    }
+    if ($eocd < 0) throw new RuntimeException('That does not look like a valid Excel file.');
+
+    $count = unpack('v', substr($data, $eocd + 10, 2))[1];
+    $cdOff = unpack('V', substr($data, $eocd + 16, 4))[1];
+    if ($count === 0xFFFF || $cdOff === 0xFFFFFFFF) {
+        throw new RuntimeException('That Excel file uses the zip64 format, which cannot be opened '
+            . 'without the zip extension. Please save it as CSV.');
+    }
+
+    $out = [];
+    $p = $cdOff;
+    for ($e = 0; $e < $count; $e++) {
+        if ($p + 46 > $len || substr($data, $p, 4) !== "PK\x01\x02") break;
+        $method   = unpack('v', substr($data, $p + 10, 2))[1];
+        $csize    = unpack('V', substr($data, $p + 20, 4))[1];
+        $nameLen  = unpack('v', substr($data, $p + 28, 2))[1];
+        $extraLen = unpack('v', substr($data, $p + 30, 2))[1];
+        $cmtLen   = unpack('v', substr($data, $p + 32, 2))[1];
+        $lhOff    = unpack('V', substr($data, $p + 42, 4))[1];
+        $name     = substr($data, $p + 46, $nameLen);
+        $p += 46 + $nameLen + $extraLen + $cmtLen;
+
+        if (!xlsx_wanted($name)) continue;
+        // The local header repeats the name, and its extra field can be a
+        // different length from the one in the directory, so read it again
+        // rather than assuming.
+        if (substr($data, $lhOff, 4) !== "PK\x03\x04") continue;
+        $lNameLen  = unpack('v', substr($data, $lhOff + 26, 2))[1];
+        $lExtraLen = unpack('v', substr($data, $lhOff + 28, 2))[1];
+        $raw = substr($data, $lhOff + 30 + $lNameLen + $lExtraLen, $csize);
+
+        if ($method === 0) {                      // stored, not compressed
+            $out[$name] = $raw;
+        } elseif ($method === 8) {                // deflated, the usual case
+            $plain = @gzinflate($raw);
+            if ($plain !== false) $out[$name] = $plain;
+        }
+        // any other compression method is too unusual to carry code for
+    }
+    if (!$out) throw new RuntimeException('That Excel file could not be read.');
+    return $out;
+}
+
+function read_xlsx($path, $forcePure = false)
+{
+    $entries = xlsx_entries($path, $forcePure);
 
     // shared strings: most text in an xlsx lives in one big lookup table
     $shared = [];
-    if (($xml = $zip->getFromName('xl/sharedStrings.xml')) !== false) {
-        $sx = @simplexml_load_string($xml);
+    if (isset($entries['xl/sharedStrings.xml'])) {
+        $sx = @simplexml_load_string($entries['xl/sharedStrings.xml']);
         if ($sx) {
             foreach ($sx->si as $si) {
                 // <si> may be one <t>, or several <r><t> runs
@@ -69,24 +164,16 @@ function read_xlsx($path)
         }
     }
 
-    // find the first worksheet
-    $sheetXml = false;
-    foreach (['xl/worksheets/sheet1.xml', 'xl/worksheets/Sheet1.xml'] as $try) {
-        if (($sheetXml = $zip->getFromName($try)) !== false) break;
-    }
-    if ($sheetXml === false) {
-        for ($i = 0; $i < $zip->numFiles; $i++) {
-            $n = $zip->getNameIndex($i);
-            if (strpos($n, 'xl/worksheets/') === 0 && substr($n, -4) === '.xml') {
-                $sheetXml = $zip->getFromName($n);
-                break;
-            }
+    // the first worksheet
+    $sheetXml = $entries['xl/worksheets/sheet1.xml'] ?? null;
+    if ($sheetXml === null) {
+        foreach ($entries as $name => $content) {
+            if (strpos($name, 'xl/worksheets/') === 0) { $sheetXml = $content; break; }
         }
     }
-    // which number formats mean "this is a date"
-    $dateStyles = xlsx_date_styles($zip);
-    $zip->close();
-    if ($sheetXml === false) throw new RuntimeException('That Excel file has no readable sheet.');
+    if ($sheetXml === null) throw new RuntimeException('That Excel file has no readable sheet.');
+
+    $dateStyles = xlsx_date_styles($entries);
 
     $sx = @simplexml_load_string($sheetXml);
     if (!$sx) throw new RuntimeException('That Excel file could not be read.');
@@ -95,9 +182,9 @@ function read_xlsx($path)
     foreach ($sx->sheetData->row as $r) {
         $cells = [];
         foreach ($r->c as $c) {
-            $ref  = (string)$c['r'];
-            $col  = xlsx_col_index(preg_replace('/\d+/', '', $ref));
-            $type = (string)$c['t'];
+            $ref   = (string)$c['r'];
+            $col   = xlsx_col_index(preg_replace('/\d+/', '', $ref));
+            $type  = (string)$c['t'];
             $style = $c['s'] !== null ? (int)$c['s'] : -1;
 
             if ($type === 's') {
@@ -116,18 +203,18 @@ function read_xlsx($path)
         $width = max(array_keys($cells)) + 1;
         $line = [];
         for ($i = 0; $i < $width; $i++) $line[] = $cells[$i] ?? '';
+        if (row_is_blank($line)) continue;      // Excel exports empty trailing rows
         $rows[] = $line;
     }
     return $rows;
 }
 
 // Work out which cell styles are date formats, so 43467 shows as 2019-01-02.
-function xlsx_date_styles(ZipArchive $zip)
+function xlsx_date_styles(array $entries)
 {
     $out = [];
-    $xml = $zip->getFromName('xl/styles.xml');
-    if ($xml === false) return $out;
-    $sx = @simplexml_load_string($xml);
+    if (!isset($entries['xl/styles.xml'])) return $out;
+    $sx = @simplexml_load_string($entries['xl/styles.xml']);
     if (!$sx) return $out;
 
     // built-in formats that are dates
