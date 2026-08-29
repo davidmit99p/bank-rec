@@ -2,7 +2,10 @@
 
 Things worth doing, not doing now. Nothing here is blocking anything.
 
-Add to this as ideas come up, and cross them off as they get built.
+**This file is only the starting point.** The live version is on the Shelf page
+of the site, where it can be edited directly - the first time that page was
+opened it took a copy of this file, and everything since has been saved in the
+database. Editing this file will not change what the site shows.
 
 ---
 

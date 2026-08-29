@@ -120,9 +120,13 @@ array at the top of that file to try different combinations.
 
 ## Shelf notes
 
-`SHELF.md` holds the things worth doing but not being done now - what to ask
-the host for, ideas ready to build, and the limits that were left deliberately.
-Add to it as ideas come up.
+The **Shelf** page holds the things worth doing but not being done now - what to
+ask the host for, ideas ready to build, and the limits that were left
+deliberately. It is edited on the page itself and kept in the database, so a
+note can be jotted down the moment it occurs to you; every save keeps the
+version it replaced.
+
+`SHELF.md` in this folder is only the seed it started from.
 
 ## What is in each folder
 
