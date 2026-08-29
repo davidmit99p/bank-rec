@@ -87,3 +87,16 @@ textarea{min-height:4rem}
 .notes p{margin:.5rem 0;max-width:75ch}
 .notes hr{border:0;border-top:1px solid var(--line);margin:1.5rem 0}
 .notes code{background:#f0ece4;padding:.1rem .3rem;border-radius:3px;font-size:.9em}
+
+/* the split button, sitting beside the tick box */
+.tickcell{white-space:nowrap}
+.splitbtn{border:1px solid var(--line);background:transparent;color:var(--muted);
+  border-radius:4px;cursor:pointer;font-size:.8rem;line-height:1;padding:.15rem .25rem;margin:0 .15rem}
+.splitbtn:hover{border-color:var(--accent);color:var(--accent);background:#f6f3ec}
+
+/* the split dialog */
+.split-dlg{border:1px solid var(--line);border-radius:10px;padding:1.25rem;
+  max-width:640px;width:92vw;background:var(--panel);color:var(--ink)}
+.split-dlg::backdrop{background:rgba(27,26,23,.45)}
+.split-dlg table{margin-top:.5rem}
+.split-dlg input[type=text]{width:100%}

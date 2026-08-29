@@ -118,6 +118,33 @@ if (($_POST['action'] ?? '') === 'manual') {
     }
 }
 
+// --- splitting one transaction into parts ------------------------------------
+if (($_POST['action'] ?? '') === 'split') {
+    $side = ($_POST['side'] ?? '') === 'bank' ? 'bank' : 'ledger';
+    $parts = [];
+    foreach ((array)($_POST['part_value'] ?? []) as $i => $v) {
+        $parts[] = ['value' => $v, 'description' => $_POST['part_desc'][$i] ?? ''];
+    }
+    [$ok, $msg] = split_transaction($side, (int)($_POST['txn_id'] ?? 0), $parts);
+    if ($ok) {
+        flash($msg);
+        header('Location: transactions.php?' . http_build_query($_POST['back'] ?? []));
+        exit;
+    }
+    $error = $msg;
+}
+
+if (($_POST['action'] ?? '') === 'unsplit') {
+    $side = ($_POST['side'] ?? '') === 'bank' ? 'bank' : 'ledger';
+    [$ok, $msg] = unsplit_transaction($side, (int)($_POST['parent_id'] ?? 0));
+    if ($ok) {
+        flash($msg);
+        header('Location: transactions.php?' . http_build_query($_POST['back'] ?? []));
+        exit;
+    }
+    $error = $msg;
+}
+
 // --- unmatching, when matched items are on show ------------------------------
 if (($_POST['action'] ?? '') === 'unmatch') {
     [$ok, $msg] = unmatch_selection($_POST['ledger'] ?? [], $_POST['bank'] ?? []);
@@ -195,7 +222,11 @@ function list_items($side, $q, $from, $to, $skipIds, $show = 'open', $sortKey = 
     $col = sort_columns()[$sortKey] ?? 'txn_date';
     $d   = $dir === 'desc' ? 'DESC' : 'ASC';
     $where[] = rec_where('t');
-    $sql = "SELECT t.*, r.run_ref,
+    if (splits_ready()) $where[] = 't.split_at IS NULL';   // the parts stand in for it now
+    $parentVal = splits_ready()
+        ? ", (SELECT p.value FROM {$table} p WHERE p.id = t.parent_id) AS parent_value"
+        : ", NULL AS parent_value";
+    $sql = "SELECT t.*, r.run_ref{$parentVal},
                    (SELECT l.group_id FROM rec_match_lines l
                      WHERE l.side = '{$side}' AND l.txn_id = t.id LIMIT 1) AS group_id
             FROM {$table} t
@@ -331,11 +362,11 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
       <div class="scroll">
         <table>
           <thead><tr>
-            <?php if ($tickFirst) echo '<th style="width:1.5rem"></th>'; ?>
+            <?php if ($tickFirst) echo '<th style="width:3.2rem"></th>'; ?>
             <?= sort_head('Date', $pfx, 'date', $sortKey, $dir) ?>
             <?= sort_head('Description', $pfx, 'description', $sortKey, $dir) ?>
             <?= sort_head('Value', $pfx, 'value', $sortKey, $dir, 'num') ?>
-            <?php if (!$tickFirst) echo '<th style="width:1.5rem"></th>'; ?>
+            <?php if (!$tickFirst) echo '<th style="width:3.2rem"></th>'; ?>
           </tr></thead>
           <tbody>
           <?php foreach ($rows as $t):
@@ -344,18 +375,31 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
                    . ' class="tick" data-side="' . $tag . '" data-value="' . h($t['value']) . '"'
                    . ' data-matched="' . ($isMatched ? 1 : 0) . '"'
                    . ' data-group="' . (int)($t['group_id'] ?? 0) . '">';
+              $splitBtn = '';
+              if (splits_ready() && !$isMatched) {
+                  $splitBtn = '<button type="button" class="splitbtn" title="Split this into parts"'
+                    . ' data-side="' . $side . '"'
+                    . ' data-id="' . (int)$t['id'] . '"'
+                    . ' data-value="' . h($t['value']) . '"'
+                    . ' data-date="' . h($t['txn_date']) . '"'
+                    . ' data-parent="' . (int)($t['parent_id'] ?? 0) . '"'
+                    . ' data-desc="' . h($t['description']) . '">&#9986;</button>';
+              }
           ?>
             <tr<?= $isMatched ? ' style="opacity:.6"' : '' ?>>
-              <?php if ($tickFirst) echo '<td>' . $box . '</td>'; ?>
+              <?php if ($tickFirst) echo '<td class="tickcell">' . $box . $splitBtn . '</td>'; ?>
               <td class="small"><?= h($t['txn_date']) ?></td>
               <td class="desc" title="<?= h($t['description']) ?>"><?= h($t['description']) ?>
+                <?php if (!empty($t['parent_id'])): ?>
+                  <span class="tag" title="split out of <?= h(money($t['parent_value'] ?? 0)) ?> on <?= h($t['txn_date']) ?>">split</span>
+                <?php endif; ?>
                 <?php if ($isMatched): ?>
                   <span class="tag <?= is_numeric($t['rule_ref']) ? '' : 'manual' ?>"><?php
                     echo is_numeric($t['rule_ref']) ? 'rule ' . h($t['rule_ref']) : h($t['rule_ref']); ?></span>
                   <span class="tag"><?= h($t['run_ref']) ?></span>
                 <?php endif; ?></td>
               <td class="num <?= $t['value'] < 0 ? 'neg' : '' ?>"><?= money($t['value']) ?></td>
-              <?php if (!$tickFirst) echo '<td>' . $box . '</td>'; ?>
+              <?php if (!$tickFirst) echo '<td class="tickcell">' . $splitBtn . $box . '</td>'; ?>
             </tr>
           <?php endforeach; ?>
           <?php if (!$rows): ?><tr><td colspan="4" class="muted">Nothing to show.</td></tr><?php endif; ?>
@@ -462,4 +506,143 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
   update();
 })();
 </script>
+<?php if (splits_ready()): ?>
+<dialog id="splitDlg" class="split-dlg">
+  <form method="post" id="splitForm">
+    <input type="hidden" name="action" value="split">
+    <input type="hidden" name="side"   id="spSide">
+    <input type="hidden" name="txn_id" id="spId">
+    <?php foreach ($back as $k => $v): ?>
+      <input type="hidden" name="back[<?= h($k) ?>]" value="<?= h($v) ?>">
+    <?php endforeach; ?>
+
+    <h2 style="margin-top:0">Split a transaction</h2>
+    <p class="muted small" id="spSummary"></p>
+
+    <table id="spParts">
+      <thead><tr><th>Description</th><th class="num" style="width:9rem">Value</th><th style="width:2rem"></th></tr></thead>
+      <tbody></tbody>
+    </table>
+
+    <div class="actions" style="margin-top:.5rem">
+      <button class="btn ghost" type="button" id="spAdd">Add another part</button>
+      <span class="balance" id="spLeft" style="margin-left:auto"></span>
+    </div>
+
+    <p class="small muted">The parts have to come to exactly the original amount, or the totals on that
+      side would move. The original is kept and marked as split, so this can be undone.</p>
+
+    <div class="actions">
+      <button class="btn" type="submit" id="spSave" disabled>Save the split</button>
+      <button class="btn ghost" type="button" id="spCancel">Cancel</button>
+    </div>
+  </form>
+
+  <form method="post" id="unsplitForm" style="border-top:1px solid var(--line);margin-top:1rem;padding-top:.75rem;display:none">
+    <input type="hidden" name="action" value="unsplit">
+    <input type="hidden" name="side"      id="usSide">
+    <input type="hidden" name="parent_id" id="usParent">
+    <?php foreach ($back as $k => $v): ?>
+      <input type="hidden" name="back[<?= h($k) ?>]" value="<?= h($v) ?>">
+    <?php endforeach; ?>
+    <p class="small muted" style="margin:0 0 .5rem">This one came from a split. You can put the whole
+      split back together, so long as none of its parts are matched.</p>
+    <button class="btn ghost" type="submit" style="color:var(--bad);border-color:var(--bad)">
+      Undo the split this came from</button>
+  </form>
+</dialog>
+
+<script>
+(function () {
+  var dlg = document.getElementById('splitDlg');
+  if (!dlg || !dlg.showModal) return;          // very old browser: buttons just do nothing
+
+  var body = dlg.querySelector('#spParts tbody');
+  var left = document.getElementById('spLeft');
+  var save = document.getElementById('spSave');
+  var total = 0;
+
+  function fmt(n) { return n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+
+  function addRow(desc, value) {
+    var tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td><input type="text" name="part_desc[]" value=""></td>' +
+      '<td><input type="text" name="part_value[]" class="pval num" value="" placeholder="0.00"></td>' +
+      '<td><button type="button" class="btn ghost small takerest" title="Use whatever is left">&#8594;</button></td>';
+    body.appendChild(tr);
+    tr.querySelector('input[name="part_desc[]"]').value = desc || '';
+    if (value !== undefined) tr.querySelector('.pval').value = value;
+    return tr;
+  }
+
+  function allocated() {
+    var sum = 0;
+    body.querySelectorAll('.pval').forEach(function (i) {
+      var v = parseFloat((i.value || '').replace(/,/g, ''));
+      if (!isNaN(v)) sum += v;
+    });
+    return Math.round(sum * 100) / 100;
+  }
+
+  function update() {
+    var rest = Math.round((total - allocated()) * 100) / 100;
+    var filled = 0;
+    body.querySelectorAll('.pval').forEach(function (i) {
+      var v = parseFloat((i.value || '').replace(/,/g, ''));
+      if (!isNaN(v) && Math.abs(v) >= 0.005) filled++;
+    });
+    left.textContent = rest === 0 ? 'Fully allocated' : 'Still to allocate ' + fmt(rest);
+    left.className = 'balance ' + (rest === 0 && filled >= 2 ? 'ok' : 'off');
+    save.disabled = !(rest === 0 && filled >= 2);
+  }
+
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('.splitbtn');
+    if (btn) {
+      total = parseFloat(btn.dataset.value) || 0;
+      document.getElementById('spSide').value = btn.dataset.side;
+      document.getElementById('spId').value = btn.dataset.id;
+      document.getElementById('spSummary').textContent =
+        btn.dataset.date + '  ' + btn.dataset.desc + '  ' + fmt(total);
+
+      body.innerHTML = '';
+      addRow(btn.dataset.desc, '');
+      addRow(btn.dataset.desc, '');
+
+      var us = document.getElementById('unsplitForm');
+      if (btn.dataset.parent && btn.dataset.parent !== '0') {
+        document.getElementById('usSide').value = btn.dataset.side;
+        document.getElementById('usParent').value = btn.dataset.parent;
+        us.style.display = '';
+      } else {
+        us.style.display = 'none';
+      }
+      update();
+      dlg.showModal();
+      return;
+    }
+    if (e.target.closest('#spCancel')) { dlg.close(); return; }
+    if (e.target.closest('#spAdd'))    { addRow('', ''); update(); return; }
+    var take = e.target.closest('.takerest');
+    if (take) {
+      var input = take.closest('tr').querySelector('.pval');
+      var others = 0;
+      body.querySelectorAll('.pval').forEach(function (i) {
+        if (i === input) return;
+        var v = parseFloat((i.value || '').replace(/,/g, ''));
+        if (!isNaN(v)) others += v;
+      });
+      input.value = (Math.round((total - others) * 100) / 100).toFixed(2);
+      update();
+    }
+  });
+
+  dlg.addEventListener('input', function (e) {
+    if (e.target.classList.contains('pval')) update();
+  });
+})();
+</script>
+<?php endif; ?>
+
 <?php render_footer(); ?>

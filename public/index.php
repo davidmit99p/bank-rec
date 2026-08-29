@@ -7,7 +7,7 @@ function side_stats($table)
     $r = db()->query("SELECT COUNT(*) total,
                              SUM(matched_at IS NULL) open,
                              COALESCE(SUM(CASE WHEN matched_at IS NULL THEN value ELSE 0 END),0) open_value
-                      FROM {$table} WHERE " . rec_where())->fetch();
+                      FROM {$table} WHERE " . rec_where() . not_split())->fetch();
     return $r;
 }
 $L = side_stats('rec_ledger');

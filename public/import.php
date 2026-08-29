@@ -138,8 +138,8 @@ try {
 }
 
 $counts = [
-    'ledger' => db()->query("SELECT COUNT(*) c, SUM(matched_at IS NULL) o FROM rec_ledger WHERE " . rec_where())->fetch(),
-    'bank'   => db()->query("SELECT COUNT(*) c, SUM(matched_at IS NULL) o FROM rec_bank WHERE " . rec_where())->fetch(),
+    'ledger' => db()->query("SELECT COUNT(*) c, SUM(matched_at IS NULL) o FROM rec_ledger WHERE " . rec_where() . not_split())->fetch(),
+    'bank'   => db()->query("SELECT COUNT(*) c, SUM(matched_at IS NULL) o FROM rec_bank WHERE " . rec_where() . not_split())->fetch(),
 ];
 
 render_header('Import');

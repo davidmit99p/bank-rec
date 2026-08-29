@@ -7,6 +7,7 @@
 // -----------------------------------------------------------------------------
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/context.php';
+require_once __DIR__ . '/splits.php';
 
 // The choices offered on the rule form ---------------------------------------
 function desc_ops() {
@@ -150,7 +151,8 @@ function load_open($side)
 {
     $table = $side === 'ledger' ? 'rec_ledger' : 'rec_bank';
     return db()->query("SELECT id, txn_date, description, value FROM {$table}
-                        WHERE matched_at IS NULL" . rec_and() . " ORDER BY txn_date, id")->fetchAll();
+                        WHERE matched_at IS NULL" . rec_and() . not_split()
+                        . " ORDER BY txn_date, id")->fetchAll();
 }
 
 // Transactions already spoken for by suggestions in this draft run.

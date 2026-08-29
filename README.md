@@ -94,6 +94,14 @@ bank on the right. Two ways to match:
   each side and the difference between them; the button only comes alive when
   they agree. These are recorded against rule reference `manual`.
 
+**Splitting a transaction.** Sometimes one bank line covers more than one thing
+- an invoice of 161.10 and a 0.75 charge on the same payment. The scissors
+button beside a transaction opens a box to divide it into parts, each of which
+can then be matched separately. The parts have to come to exactly the original
+amount. The original is kept and marked as split rather than deleted, so it
+drops out of the working list, the parts point back at it, and the split can be
+undone while none of its parts are matched.
+
 **4. Review and finalise.** Suggestions are not committed until you say so.
 Untick anything you disagree with, then press Finalise. Only the ticked
 matches are written; anything unticked is thrown away and the items stay open.
