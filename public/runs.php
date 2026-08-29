@@ -64,32 +64,7 @@ rule number that matched it, so you can always see why something was matched.</p
 </div>
 
 <h2>Matched transactions</h2>
-<?php
-$matchedL = $pdo->query("SELECT t.*, r.run_ref FROM rec_ledger t LEFT JOIN rec_runs r ON r.id = t.run_id
-                         WHERE t.matched_at IS NOT NULL ORDER BY t.matched_at DESC, t.id DESC LIMIT 300")->fetchAll();
-$matchedB = $pdo->query("SELECT t.*, r.run_ref FROM rec_bank t LEFT JOIN rec_runs r ON r.id = t.run_id
-                         WHERE t.matched_at IS NOT NULL ORDER BY t.matched_at DESC, t.id DESC LIMIT 300")->fetchAll();
-?>
-<div class="sides">
-<?php foreach ([['Ledger', $matchedL], ['Bank', $matchedB]] as [$label, $rows]): ?>
-  <div>
-    <div class="side-head"><h2><?= $label ?></h2><span class="muted small">most recent 300</span></div>
-    <div class="scroll">
-      <table>
-        <thead><tr><th>Date</th><th>Description</th><th class="num">Value</th><th>Rule</th><th>Run</th></tr></thead>
-        <tbody>
-        <?php foreach ($rows as $t): ?>
-          <tr><td class="small"><?= h($t['txn_date']) ?></td>
-              <td class="desc" title="<?= h($t['description']) ?>"><?= h($t['description']) ?></td>
-              <td class="num <?= $t['value'] < 0 ? 'neg' : '' ?>"><?= money($t['value']) ?></td>
-              <td><span class="tag <?= $t['rule_ref'] === 'manual' ? 'manual' : '' ?>"><?= h($t['rule_ref']) ?></span></td>
-              <td class="small"><?= h($t['run_ref']) ?></td></tr>
-        <?php endforeach; ?>
-        <?php if (!$rows): ?><tr><td colspan="5" class="muted">Nothing matched yet.</td></tr><?php endif; ?>
-        </tbody>
-      </table>
-    </div>
-  </div>
-<?php endforeach; ?>
-</div>
+<p class="muted">The full searchable list, with both sides of each match together and the ability to
+undo one, lives on the <a href="matches.php">Matches</a> screen.</p>
+
 <?php render_footer(); ?>

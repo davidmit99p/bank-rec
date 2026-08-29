@@ -11,7 +11,8 @@ function render_header($title = '')
         'import.php'       => '1. Import',
         'rules.php'        => '2. Rules',
         'transactions.php' => '3. Transactions',
-        'runs.php'         => '4. Runs',
+        'matches.php'      => 'Matches',
+        'runs.php'         => 'Runs',
     ];
     ?>
 <!doctype html>

@@ -451,3 +451,113 @@ function finalise_run($runId)
         return [false, 'Nothing was committed: ' . $e->getMessage()];
     }
 }
+
+
+// -----------------------------------------------------------------------------
+// Undoing matches.
+// -----------------------------------------------------------------------------
+
+// Undo one whole committed match. Returns how many transactions were freed.
+// Deleting the group takes its lines with it (foreign key cascade).
+function unmatch_whole_group($groupId)
+{
+    $pdo = db();
+    $st = $pdo->prepare("SELECT side, txn_id FROM rec_match_lines WHERE group_id = ?");
+    $st->execute([$groupId]);
+    $lines = $st->fetchAll();
+
+    $upL = $pdo->prepare("UPDATE rec_ledger SET run_id=NULL, rule_ref=NULL, group_no=NULL, matched_at=NULL WHERE id=?");
+    $upB = $pdo->prepare("UPDATE rec_bank   SET run_id=NULL, rule_ref=NULL, group_no=NULL, matched_at=NULL WHERE id=?");
+    foreach ($lines as $l) {
+        ($l['side'] === 'ledger' ? $upL : $upB)->execute([$l['txn_id']]);
+    }
+    $pdo->prepare("DELETE FROM rec_match_groups WHERE id = ?")->execute([$groupId]);
+    return count($lines);
+}
+
+// Unmatch a hand-picked set of transactions, which may span several matches.
+//
+// THE GOLDEN RULE, IN REVERSE. A match balances, so if you take out a selection
+// that itself balances, what is left still balances. But that has to hold
+// WITHIN EACH MATCH, not just across the selection as a whole - taking 10 out
+// of one match and 10 out of another leaves both of them broken, even though
+// the two cancel out on paper.
+//
+// Selecting one side only is the same test: the other side counts as zero, so
+// the selection has to come to zero - which is how you pull a contra apart.
+function unmatch_selection(array $ledgerIds, array $bankIds)
+{
+    $pdo = db();
+    $sel = [];
+
+    foreach ([['ledger', $ledgerIds], ['bank', $bankIds]] as [$side, $ids]) {
+        $ids = array_values(array_filter(array_map('intval', $ids)));
+        if (!$ids) continue;
+        $in = implode(',', array_fill(0, count($ids), '?'));
+        $st = $pdo->prepare("SELECT id AS line_id, group_id, side, txn_id, value
+                             FROM rec_match_lines WHERE side = ? AND txn_id IN ($in)");
+        $st->execute(array_merge([$side], $ids));
+        foreach ($st->fetchAll() as $r) $sel[$r['group_id']][$r['side']][] = $r;
+    }
+
+    if (!$sel) return [false, 'None of those are matched, so there is nothing to unmatch.'];
+
+    // check every affected match before touching anything
+    $nums = $pdo->query("SELECT id, group_no FROM rec_match_groups
+                         WHERE id IN (" . implode(',', array_map('intval', array_keys($sel))) . ")")
+                ->fetchAll(PDO::FETCH_KEY_PAIR);
+    foreach ($sel as $gid => $sides) {
+        $l = array_sum(array_map(fn($r) => (float)$r['value'], $sides['ledger'] ?? []));
+        $b = array_sum(array_map(fn($r) => (float)$r['value'], $sides['bank'] ?? []));
+        if (abs($l - $b) >= 0.005) {
+            $no = $nums[$gid] ?? $gid;
+            return [false, "What you have picked out of match {$no} does not balance - "
+                . money($l) . ' on the ledger against ' . money($b) . ' on the bank. '
+                . 'Either even it up, or take the whole match out. Nothing has been changed.'];
+        }
+    }
+
+    $pdo->beginTransaction();
+    try {
+        $freed = 0;
+        $split = 0;
+        $gone  = 0;
+        $upL = $pdo->prepare("UPDATE rec_ledger SET run_id=NULL, rule_ref=NULL, group_no=NULL, matched_at=NULL WHERE id=?");
+        $upB = $pdo->prepare("UPDATE rec_bank   SET run_id=NULL, rule_ref=NULL, group_no=NULL, matched_at=NULL WHERE id=?");
+
+        foreach ($sel as $gid => $sides) {
+            foreach (['ledger', 'bank'] as $side) {
+                foreach ($sides[$side] ?? [] as $line) {
+                    $pdo->prepare("DELETE FROM rec_match_lines WHERE id = ?")->execute([$line['line_id']]);
+                    ($side === 'ledger' ? $upL : $upB)->execute([$line['txn_id']]);
+                    $freed++;
+                }
+            }
+            // what is left of the match?
+            $st = $pdo->prepare("SELECT side, SUM(value) total, COUNT(*) n FROM rec_match_lines
+                                 WHERE group_id = ? GROUP BY side");
+            $st->execute([$gid]);
+            $left = ['ledger' => 0.0, 'bank' => 0.0];
+            $count = 0;
+            foreach ($st->fetchAll() as $r) { $left[$r['side']] = (float)$r['total']; $count += (int)$r['n']; }
+
+            if ($count === 0) {
+                $pdo->prepare("DELETE FROM rec_match_groups WHERE id = ?")->execute([$gid]);
+                $gone++;
+            } else {
+                $pdo->prepare("UPDATE rec_match_groups SET ledger_total = ?, bank_total = ? WHERE id = ?")
+                    ->execute([$left['ledger'], $left['bank'], $gid]);
+                $split++;
+            }
+        }
+        $pdo->commit();
+
+        $msg = "{$freed} transactions unmatched and open again.";
+        if ($gone)  $msg .= " {$gone} match" . ($gone == 1 ? '' : 'es') . ' removed entirely.';
+        if ($split) $msg .= " {$split} match" . ($split == 1 ? '' : 'es') . ' kept the rest, still balancing.';
+        return [true, $msg];
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        return [false, 'Nothing was unmatched: ' . $e->getMessage()];
+    }
+}

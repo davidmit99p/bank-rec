@@ -5,6 +5,7 @@
 // ourselves.
 // -----------------------------------------------------------------------------
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/matcher.php';   // delete_import() unmatches before it deletes
 
 // Read any supported file into a plain array of rows (each row an array of cells).
 function read_table($path, $originalName)
@@ -309,14 +310,150 @@ function build_transactions(array $rows, array $map, $startRow = 0)
     return [$out, $skipped];
 }
 
+// Has sql/migration_002_imports.sql been run yet? The site deploys on push, so
+// new code can arrive before the database has caught up. Rather than break,
+// everything to do with removing a whole file simply stays out of the way.
+function imports_ready()
+{
+    static $ok = null;
+    if ($ok === null) {
+        try {
+            db()->query("SELECT id FROM rec_imports LIMIT 1");
+            db()->query("SELECT import_id FROM rec_ledger LIMIT 1");
+            db()->query("SELECT import_id FROM rec_bank LIMIT 1");
+            $ok = true;
+        } catch (Throwable $e) {
+            $ok = false;
+        }
+    }
+    return $ok;
+}
+
 function insert_transactions($side, array $rows, $sourceFile)
 {
     $table = $side === 'ledger' ? 'rec_ledger' : 'rec_bank';
-    $pdo = db();
-    $st = $pdo->prepare("INSERT INTO {$table} (txn_date, description, value, source_file)
-                         VALUES (?,?,?,?)");
+    $pdo   = db();
+    $ready = imports_ready();           // check before opening the transaction
+
     $pdo->beginTransaction();
-    foreach ($rows as $r) $st->execute([$r[0], $r[1], $r[2], $sourceFile]);
+    $importId = null;
+    if ($ready) {
+        // record the file itself, so the whole batch can be removed again later
+        $dates = array_column($rows, 0);
+        $imp = $pdo->prepare("INSERT INTO rec_imports (side, filename, row_count, total_value, date_from, date_to)
+                              VALUES (?,?,?,?,?,?)");
+        $imp->execute([$side, $sourceFile, count($rows),
+                       array_sum(array_column($rows, 2)),
+                       $dates ? min($dates) : null,
+                       $dates ? max($dates) : null]);
+        $importId = (int)$pdo->lastInsertId();
+
+        $st = $pdo->prepare("INSERT INTO {$table} (txn_date, description, value, source_file, import_id)
+                             VALUES (?,?,?,?,?)");
+        foreach ($rows as $r) $st->execute([$r[0], $r[1], $r[2], $sourceFile, $importId]);
+    } else {
+        $st = $pdo->prepare("INSERT INTO {$table} (txn_date, description, value, source_file)
+                             VALUES (?,?,?,?)");
+        foreach ($rows as $r) $st->execute([$r[0], $r[1], $r[2], $sourceFile]);
+    }
     $pdo->commit();
     return count($rows);
+}
+
+// --- guarding against loading the same thing twice ---------------------------
+
+// Look for transactions already in the table with the same date and value as
+// something in the file about to be imported. Returns one entry per collision,
+// holding the incoming row and the transactions already there that clash.
+function find_existing_duplicates($side, array $rows, $limit = 200)
+{
+    if (!$rows) return [];
+    $table = $side === 'ledger' ? 'rec_ledger' : 'rec_bank';
+
+    // pull existing rows once, for the date range of the file only
+    $dates = array_column($rows, 0);
+    $st = db()->prepare("SELECT id, txn_date, description, value, source_file, imported_at, matched_at
+                         FROM {$table} WHERE txn_date BETWEEN ? AND ?");
+    $st->execute([min($dates), max($dates)]);
+
+    $byKey = [];
+    foreach ($st->fetchAll() as $e) {
+        $byKey[$e['txn_date'] . '|' . number_format((float)$e['value'], 2, '.', '')][] = $e;
+    }
+    if (!$byKey) return [];
+
+    $out = [];
+    foreach ($rows as $r) {
+        $key = $r[0] . '|' . number_format((float)$r[2], 2, '.', '');
+        if (empty($byKey[$key])) continue;
+        $out[] = ['incoming' => $r, 'existing' => $byKey[$key]];
+        if (count($out) >= $limit) break;
+    }
+    return $out;
+}
+
+// --- removing a whole import -------------------------------------------------
+
+function list_imports($side = null)
+{
+    if (!imports_ready()) return [];
+    $sql = "SELECT i.*,
+                   (SELECT COUNT(*) FROM rec_ledger t WHERE t.import_id = i.id) +
+                   (SELECT COUNT(*) FROM rec_bank   t WHERE t.import_id = i.id) AS still_there,
+                   (SELECT COUNT(*) FROM rec_ledger t WHERE t.import_id = i.id AND t.matched_at IS NOT NULL) +
+                   (SELECT COUNT(*) FROM rec_bank   t WHERE t.import_id = i.id AND t.matched_at IS NOT NULL) AS matched
+            FROM rec_imports i";
+    $args = [];
+    if ($side !== null) { $sql .= " WHERE i.side = ?"; $args[] = $side; }
+    $sql .= " ORDER BY i.imported_at DESC, i.id DESC";
+    $st = db()->prepare($sql);
+    $st->execute($args);
+    return $st->fetchAll();
+}
+
+// Remove every transaction that came from one import.
+//
+// Anything already matched is unmatched first, and it is unmatched a WHOLE
+// match at a time - never half of one - so nothing is ever left half matched
+// and out of balance.
+function delete_import($importId)
+{
+    if (!imports_ready()) {
+        return [false, 'The database has not been updated for this yet - run sql/migration_002_imports.sql.'];
+    }
+    $pdo = db();
+    $st = $pdo->prepare("SELECT * FROM rec_imports WHERE id = ?");
+    $st->execute([$importId]);
+    $imp = $st->fetch();
+    if (!$imp) return [false, 'That import no longer exists.'];
+
+    $table = $imp['side'] === 'ledger' ? 'rec_ledger' : 'rec_bank';
+
+    $pdo->beginTransaction();
+    try {
+        // which committed matches involve rows from this import?
+        $st = $pdo->prepare("SELECT DISTINCT g.id FROM rec_match_groups g
+                             JOIN rec_match_lines l ON l.group_id = g.id
+                             JOIN {$table} t ON t.id = l.txn_id AND l.side = ?
+                             WHERE t.import_id = ?");
+        $st->execute([$imp['side'], $importId]);
+        $groupIds = array_column($st->fetchAll(), 'id');
+
+        $unmatched = 0;
+        foreach ($groupIds as $gid) $unmatched += unmatch_whole_group($gid);
+
+        $del = $pdo->prepare("DELETE FROM {$table} WHERE import_id = ?");
+        $del->execute([$importId]);
+        $removed = $del->rowCount();
+
+        $pdo->prepare("DELETE FROM rec_imports WHERE id = ?")->execute([$importId]);
+        $pdo->commit();
+
+        $msg = "Removed {$removed} transactions loaded from " . $imp['filename'] . '.';
+        if ($unmatched) $msg .= " {$unmatched} transactions were unmatched first and are open again.";
+        return [true, $msg];
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        return [false, 'Nothing was removed: ' . $e->getMessage()];
+    }
 }

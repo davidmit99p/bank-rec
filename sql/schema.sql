@@ -13,13 +13,14 @@ CREATE TABLE IF NOT EXISTS rec_ledger (
     description VARCHAR(500)  NOT NULL DEFAULT '',
     value       DECIMAL(15,2) NOT NULL,
     source_file VARCHAR(255)  NULL,
+    import_id   INT           NULL,
     imported_at DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
     -- filled in when the item is matched and finalised
     run_id      INT           NULL,
     rule_ref    VARCHAR(20)   NULL,
     group_no    INT           NULL,
     matched_at  DATETIME      NULL,
-    INDEX (txn_date), INDEX (value), INDEX (run_id), INDEX (matched_at)
+    INDEX (txn_date), INDEX (value), INDEX (run_id), INDEX (matched_at), INDEX (import_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Table 2: the bank statement -------------------------------------------------
@@ -29,12 +30,26 @@ CREATE TABLE IF NOT EXISTS rec_bank (
     description VARCHAR(500)  NOT NULL DEFAULT '',
     value       DECIMAL(15,2) NOT NULL,
     source_file VARCHAR(255)  NULL,
+    import_id   INT           NULL,
     imported_at DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
     run_id      INT           NULL,
     rule_ref    VARCHAR(20)   NULL,
     group_no    INT           NULL,
     matched_at  DATETIME      NULL,
-    INDEX (txn_date), INDEX (value), INDEX (run_id), INDEX (matched_at)
+    INDEX (txn_date), INDEX (value), INDEX (run_id), INDEX (matched_at), INDEX (import_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- One row per file that has been loaded, so an import can be removed again ----
+CREATE TABLE IF NOT EXISTS rec_imports (
+    id          INT AUTO_INCREMENT PRIMARY KEY,
+    side        VARCHAR(10)   NOT NULL,          -- ledger | bank
+    filename    VARCHAR(255)  NOT NULL,
+    row_count   INT           NOT NULL DEFAULT 0,
+    total_value DECIMAL(15,2) NOT NULL DEFAULT 0,
+    date_from   DATE          NULL,
+    date_to     DATE          NULL,
+    imported_at DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX (side), INDEX (imported_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- The rule library ------------------------------------------------------------
