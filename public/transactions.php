@@ -138,6 +138,14 @@ $from = trim($_GET['from'] ?? '');
 $to   = trim($_GET['to'] ?? '');
 $show = in_array($_GET['show'] ?? '', ['open', 'matched', 'both'], true) ? $_GET['show'] : 'open';
 
+// Money in / money out. A first visit has no parameters at all, so both are on;
+// after that they say what they say. Turning both off is treated as both on.
+$virgin = !isset($_GET['in']) && !isset($_GET['out']);
+$wantIn  = $virgin ? true : isset($_GET['in']);
+$wantOut = $virgin ? true : isset($_GET['out']);
+if (!$wantIn && !$wantOut) { $wantIn = $wantOut = true; }
+$sign = $wantIn && $wantOut ? 'both' : ($wantIn ? 'in' : 'out');
+
 // Column names allowed in an ORDER BY, so nothing from the address bar
 // reaches the query.
 function sort_columns()
@@ -161,7 +169,8 @@ function sort_head($label, $side, $key, $curKey, $curDir, $class = '')
 // $show is 'open', 'matched' or 'both'. Matched rows come back with the run
 // reference and the id of the match they belong to, so they can be unmatched
 // from here without going anywhere else.
-function list_items($side, $q, $from, $to, $skipIds, $show = 'open', $sortKey = 'date', $dir = 'asc')
+function list_items($side, $q, $from, $to, $skipIds, $show = 'open', $sortKey = 'date', $dir = 'asc',
+                    $sign = 'both')
 {
     $table = $side === 'ledger' ? 'rec_ledger' : 'rec_bank';
     $where = [];
@@ -169,6 +178,9 @@ function list_items($side, $q, $from, $to, $skipIds, $show = 'open', $sortKey = 
 
     if ($show === 'open')    $where[] = 't.matched_at IS NULL';
     if ($show === 'matched') $where[] = 't.matched_at IS NOT NULL';
+
+    if ($sign === 'in')  $where[] = 't.value > 0';
+    if ($sign === 'out') $where[] = 't.value < 0';
 
     if ($q !== '')    { $where[] = 't.description LIKE ?'; $args[] = '%' . $q . '%'; }
     if ($from !== '') { $where[] = 't.txn_date >= ?';      $args[] = $from; }
@@ -205,13 +217,14 @@ $ldir  = ($_GET['ld'] ?? 'asc') === 'desc' ? 'desc' : 'asc';
 $bsort = isset(sort_columns()[$_GET['bs'] ?? '']) ? $_GET['bs'] : 'date';
 $bdir  = ($_GET['bd'] ?? 'asc') === 'desc' ? 'desc' : 'asc';
 
-$ledger = list_items('ledger', $lq, $from, $to, $claimL, $show, $lsort, $ldir);
-$bank   = list_items('bank',   $bq, $from, $to, $claimB, $show, $bsort, $bdir);
+$ledger = list_items('ledger', $lq, $from, $to, $claimL, $show, $lsort, $ldir, $sign);
+$bank   = list_items('bank',   $bq, $from, $to, $claimB, $show, $bsort, $bdir, $sign);
 $lTot   = array_sum(array_map(fn($r) => (float)$r['value'], $ledger));
 $bTot   = array_sum(array_map(fn($r) => (float)$r['value'], $bank));
 $lOpen  = array_sum(array_map(fn($r) => $r['matched_at'] === null ? 1 : 0, $ledger));
 $bOpen  = array_sum(array_map(fn($r) => $r['matched_at'] === null ? 1 : 0, $bank));
-$back   = array_filter(['lq' => $lq, 'bq' => $bq, 'from' => $from, 'to' => $to, 'show' => $show]);
+$back   = array_filter(['lq' => $lq, 'bq' => $bq, 'from' => $from, 'to' => $to, 'show' => $show,
+                        'in' => $wantIn ? '1' : '', 'out' => $wantOut ? '1' : '']);
 $rules  = (int)$pdo->query("SELECT COUNT(*) FROM rec_rules WHERE active = 1" . rule_and())->fetchColumn();
 
 render_header('Transactions');
@@ -242,6 +255,8 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
     <?php foreach ($others + ['from' => $from, 'to' => $to, 'show' => $show] as $k => $v): ?>
       <input type="hidden" name="<?= h($k) ?>" value="<?= h($v) ?>">
     <?php endforeach; ?>
+    <?php if ($wantIn): ?><input type="hidden" name="in" value="1"><?php endif; ?>
+    <?php if ($wantOut): ?><input type="hidden" name="out" value="1"><?php endif; ?>
   </form>
 <?php endforeach; ?>
 
@@ -256,6 +271,15 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
       <option value="matched"<?= $show === 'matched' ? ' selected' : '' ?>>Already matched</option>
       <option value="both"<?= $show === 'both' ? ' selected' : '' ?>>Both</option>
     </select></div>
+  <div><label>Direction</label>
+    <span style="display:flex;gap:.9rem;align-items:center;padding-top:.35rem;white-space:nowrap">
+      <label style="margin:0;color:var(--ink)">
+        <input type="checkbox" name="in" value="1" style="width:auto"
+          <?= $wantIn ? 'checked' : '' ?> onchange="this.form.submit()"> Money in</label>
+      <label style="margin:0;color:var(--ink)">
+        <input type="checkbox" name="out" value="1" style="width:auto"
+          <?= $wantOut ? 'checked' : '' ?> onchange="this.form.submit()"> Money out</label>
+    </span></div>
   <button class="btn ghost" type="submit">Filter</button>
   <a class="btn ghost" href="transactions.php">Clear all</a>
   <?php if ($show !== 'open'): ?>
@@ -294,7 +318,8 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
 ?>
     <div>
       <div class="side-head"><h2><?= $title ?></h2>
-        <span class="muted small"><?= count($rows) ?> shown<?= $show === 'both' ? ', ' . $openN . ' open' : '' ?>,
+        <span class="muted small"><?= count($rows) ?> shown<?= $sign === 'in' ? ', money in only'
+            : ($sign === 'out' ? ', money out only' : '') ?><?= $show === 'both' ? ', ' . $openN . ' open' : '' ?>,
           <span class="num <?= $tot < 0 ? 'neg' : '' ?>"><?= money($tot) ?></span></span></div>
 
       <div style="display:flex;gap:.4rem;margin-bottom:.4rem">
