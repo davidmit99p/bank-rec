@@ -26,6 +26,7 @@ function load($path)
     $map   = $head ? guess_columns($head) : ['date' => null, 'description' => null, 'value' => null];
     $fromData = guess_columns_from_row($rows[$start] ?? []);
     foreach ($map as $k => $v) if ($v === null) $map[$k] = $fromData[$k];
+    $map = check_columns($map, $rows[$start] ?? [], $fromData);
     [$txns, $skipped] = build_transactions($rows, $map, $start);
     $out = [];
     foreach ($txns as $i => $t) {

@@ -257,19 +257,75 @@ function excel_serial_to_date($serial)
 // --- turning cells into transactions -----------------------------------------
 
 // Guess which columns hold the date, description and value.
+//
+// Scored rather than first-match, because column names overlap: a statement
+// with "Transaction Date", "Value Date", "Amount" and "Remaining Balance" will
+// happily give you the value date as the amount if you just look for "value",
+// and the running balance if you just look for "balance"-ish words. Ask for
+// them in order of how likely each name is to mean what you want.
 function guess_columns(array $header)
 {
-    $map = ['date' => null, 'description' => null, 'value' => null];
+    $best = ['date' => [null, 0], 'description' => [null, 0], 'value' => [null, 0]];
+
     foreach ($header as $i => $name) {
         $n = strtolower(trim((string)$name));
-        if ($map['date'] === null && preg_match('/date|posted/', $n))                     $map['date'] = $i;
-        if ($map['description'] === null && preg_match('/desc|detail|narrat|refer|payee|particular/', $n)) $map['description'] = $i;
-        if ($map['value'] === null && preg_match('/value|amount|debit|credit|net|total/', $n))  $map['value'] = $i;
+        if ($n === '') continue;
+        $isDate = (bool)preg_match('/(date|posted|dated)/', $n);
+
+        $score = 0;
+        if ($n === 'date')                                              $score = 100;
+        elseif (preg_match('/transaction date|txn date|posting date/', $n)) $score = 95;
+        elseif (preg_match('/value date|effective date/', $n))          $score = 40;  // a poor second
+        elseif ($isDate)                                                $score = 70;
+        if ($score > $best['date'][1]) $best['date'] = [$i, $score];
+
+        // Never a date column, and never a running balance - the balance is a
+        // number in the right shape and completely the wrong figure.
+        $score = 0;
+        if (!$isDate && !preg_match('/balance|b\/f|c\/f/', $n)) {
+            if ($n === 'amount' || $n === 'value')      $score = 100;
+            elseif (preg_match('/amount/', $n))         $score = 90;
+            elseif (preg_match('/value/', $n))     $score = 80;
+            elseif (preg_match('/net/', $n))       $score = 70;
+            elseif (preg_match('/debit|credit/', $n))   $score = 60;
+            elseif (preg_match('/total/', $n))          $score = 50;
+        }
+        if ($score > $best['value'][1]) $best['value'] = [$i, $score];
+
+        $score = 0;
+        if (preg_match('/desc/', $n))                        $score = 100;
+        elseif (preg_match('/narrat|detail|particular/', $n)) $score = 90;
+        elseif (preg_match('/payee|counterparty|supplier/', $n)) $score = 80;
+        elseif (preg_match('/refer/', $n))                   $score = 60;
+        if ($score > $best['description'][1]) $best['description'] = [$i, $score];
     }
+
+    $map = [];
+    foreach ($best as $k => $pair) $map[$k] = $pair[0];
+
     // fall back to the usual order
     if ($map['date'] === null)        $map['date'] = 0;
     if ($map['description'] === null) $map['description'] = 1;
     if ($map['value'] === null)       $map['value'] = min(2, max(0, count($header) - 1));
+    return $map;
+}
+
+// Do the guessed columns actually hold what we think, judged against a real
+// transaction row? A heading can mislead; the data cannot.
+function check_columns(array $map, array $dataRow, array $fromData)
+{
+    if (!$dataRow) return $map;
+    if (parse_date($dataRow[$map['date']] ?? '') === null && $fromData['date'] !== null) {
+        $map['date'] = $fromData['date'];
+    }
+    if (parse_amount($dataRow[$map['value']] ?? '') === null && $fromData['value'] !== null) {
+        $map['value'] = $fromData['value'];
+    }
+    // the description must not be the same cell as one of the others
+    if (($map['description'] === $map['date'] || $map['description'] === $map['value'])
+        && $fromData['description'] !== null) {
+        $map['description'] = $fromData['description'];
+    }
     return $map;
 }
 

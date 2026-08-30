@@ -40,6 +40,8 @@ function build_preview($rows, $side, $token, $name, $headerRow = null, $dataStar
     foreach ($map as $k => $v) {
         if ($map[$k] === null) $map[$k] = ['date' => 0, 'description' => 1, 'value' => 2][$k];
     }
+    // a heading can mislead - check the choice against a real transaction row
+    $map = check_columns($map, $dataRow, $fromData);
 
     // the spare fields this side has been given a name for
     $extras = extra_labels($side);
