@@ -115,6 +115,13 @@ amount. The original is kept and marked as split rather than deleted, so it
 drops out of the working list, the parts point back at it, and the split can be
 undone while none of its parts are matched.
 
+**Monthly summary.** The Summary screen totals each side by month with the
+difference between them, and carries that difference forward, so you can see
+which period a gap comes from instead of hunting through a long list. Months
+that do not agree are shaded, and clicking one opens the transactions for it.
+It follows the same show and direction filters, and downloads as a CSV for a
+working paper.
+
 **4. Review and finalise.** Suggestions are not committed until you say so.
 Untick anything you disagree with, then press Finalise. Only the ticked
 matches are written; anything unticked is thrown away and the items stay open.

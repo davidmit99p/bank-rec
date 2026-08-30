@@ -19,6 +19,7 @@ function render_header($title = '')
         'import.php'       => '1. Import',
         'rules.php'        => '2. Rules',
         'transactions.php' => '3. Transactions',
+        'summary.php'      => 'Summary',
         'matches.php'      => 'Matches',
         'runs.php'         => 'Runs',
         'recs.php'         => 'Reconciliations',
