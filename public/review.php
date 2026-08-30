@@ -29,6 +29,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $run['status'] === 'draft') {
     // ticked match. PHP's max_input_vars defaults to 1000, so a big run used to
     // lose everything past the 999th silently - it looked like the whole screen
     // had been finalised when it had not.
+    // lines ticked out of a group are removed first, so the totals the rest of
+    // this sees are the ones on screen
+    if (!empty($_POST['dropped'])) {
+        drop_lines_from_groups($runId, explode(',', (string)$_POST['dropped']));
+    }
+
     if (($_POST['mode'] ?? '') === 'rejected') {
         $rejected = array_filter(array_map('intval', explode(',', (string)($_POST['rejected'] ?? ''))));
         $pdo->prepare("UPDATE rec_match_groups SET accepted = 1 WHERE run_id = ?")->execute([$runId]);
@@ -61,7 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $run['status'] === 'draft') {
         // the fallback above refused to save - fall through and redisplay
     } elseif ($action === 'finalise') {
         [$ok, $msg] = finalise_run($runId);
-        if ($ok) { flash($msg . ' Run ' . $run['run_ref'] . ' is finalised.'); header('Location: transactions.php'); exit; }
+        if ($ok) { flash($msg); header('Location: transactions.php'); exit; }
         $error = $msg;
     } else {
         // "sort" is just a save that keeps your ticks and comes back in a
@@ -90,7 +96,7 @@ $groups->execute([$runId]);
 $groups = $groups->fetchAll();
 
 $lineSql = $pdo->prepare(
-    "SELECT l.side, l.txn_id, l.value,
+    "SELECT l.id AS line_id, l.side, l.txn_id, l.value,
             COALESCE(le.txn_date, bk.txn_date)       AS txn_date,
             COALESCE(le.description, bk.description) AS description
      FROM rec_match_lines l
@@ -105,6 +111,12 @@ $accepted = array_sum(array_map(fn($g) => (int)$g['accepted'], $groups));
 render_header('Review ' . $run['run_ref']);
 ?>
 <h1>4. Review <span class="tag"><?= h($run['run_ref']) ?></span></h1>
+<?php if ($run['status'] === 'draft'): ?>
+<p class="muted">Untick a whole match to throw it away, or untick individual lines to take them out of
+  one &mdash; the figure beside each match keeps up as you go, so you can watch it come into balance.
+  Only matches that balance are committed; anything still out is carried forward to a new run so you
+  can keep working on it.</p>
+<?php endif; ?>
 
 <?php if ($error): ?><p class="flash" style="background:#fbeeee;border-color:#eccfcf;color:#a12f2f"><?= h($error) ?></p><?php endif; ?>
 
@@ -131,6 +143,7 @@ render_header('Review ' . $run['run_ref']);
   <input type="hidden" name="run" value="<?= $runId ?>">
   <input type="hidden" name="mode" id="mode" value="">
   <input type="hidden" name="rejected" id="rejected" value="">
+  <input type="hidden" name="dropped" id="dropped" value="">
 
   <?php if ($run['status'] === 'draft'): ?>
   <div class="panel" style="position:sticky;top:0;z-index:5;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
@@ -242,6 +255,14 @@ document.getElementById('reviewForm').addEventListener('submit', function () {
   });
   document.getElementById('rejected').value = rejected.join(',');
   document.getElementById('mode').value = 'rejected';
+
+  // lines ticked out of a group, so it can be trimmed until it balances
+  var dropped = [];
+  document.querySelectorAll('.lineTick').forEach(function (c) {
+    if (!c.checked) dropped.push(c.dataset.line);
+    c.disabled = true;
+  });
+  document.getElementById('dropped').value = dropped.join(',');
 });
 </script>
 <?php endif; ?>

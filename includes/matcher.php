@@ -50,6 +50,7 @@ function grouping_modes() {
         'many_right'    => 'One ledger line splits into several bank lines',
         'contra_left'   => 'Two ledger lines that cancel each other out (contra)',
         'contra_right'  => 'Two bank lines that cancel each other out (contra)',
+        'period_month'  => 'Everything in the same month, both sides (may not balance)',
     ];
 }
 
@@ -362,6 +363,27 @@ function find_contra_pairs(array $pool, array &$used, $tol, $linkDesc)
     return $pairs;
 }
 
+// A month at a time, both sides together, whether or not it balances.
+//
+// This is the one shape that can suggest something out of balance. It is for
+// files that are summarised differently from each other, where you know a
+// period belongs together but not which line answers which. The suggestion is a
+// starting point you correct by eye - nothing is committed until it balances.
+//
+// Capped, because a month of twelve thousand items is not something anyone can
+// review. A month bigger than the cap is left alone rather than half offered.
+const PERIOD_GROUP_CAP = 250;
+
+function group_by_month(array $rows, array $used)
+{
+    $out = [];
+    foreach ($rows as $r) {
+        if (isset($used[$r['id']])) continue;
+        $out[substr((string)$r['txn_date'], 0, 7)][] = $r;
+    }
+    return $out;
+}
+
 // -----------------------------------------------------------------------------
 // Run every active rule against the open items and write the suggestions.
 // -----------------------------------------------------------------------------
@@ -400,7 +422,29 @@ function run_rules($runId)
 
         $sign = $rule['sign_mode'] === 'opposite' ? -1 : 1;
 
-        if (contra_side($rule['grouping'])) {
+        if ($rule['grouping'] === 'period_month') {
+            $byL = group_by_month($L, $usedL);
+            $byB = group_by_month($B, $usedB);
+            $months = array_keys($byL + $byB);
+            sort($months);
+            foreach ($months as $ym) {
+                $ls = $byL[$ym] ?? [];
+                $bs = $byB[$ym] ?? [];
+                if (!$ls || !$bs) continue;                    // needs both sides
+                if (count($ls) > PERIOD_GROUP_CAP || count($bs) > PERIOD_GROUP_CAP) continue;
+
+                $lTot = array_sum(array_map(fn($r) => (float)$r['value'], $ls));
+                $bTot = array_sum(array_map(fn($r) => (float)$r['value'], $bs));
+                $groupNo++;
+                $insG->execute([$runId, $groupNo, (string)$rule['id'],
+                                $rule['name'] . ' - ' . date('F Y', strtotime($ym . '-01')),
+                                $lTot, $bTot, $rule['sign_mode']]);
+                $gid = $pdo->lastInsertId();
+                foreach ($ls as $r) { $insL->execute([$gid, 'ledger', $r['id'], $r['value']]); $usedL[$r['id']] = 1; }
+                foreach ($bs as $r) { $insL->execute([$gid, 'bank',   $r['id'], $r['value']]); $usedB[$r['id']] = 1; }
+                $made++;
+            }
+        } elseif (contra_side($rule['grouping'])) {
             // equal and opposite entries on one side only
             $side  = contra_side($rule['grouping']);
             $isL   = $side === 'ledger';
@@ -503,15 +547,25 @@ function finalise_run($runId)
     $groups = $st->fetchAll();
     if (!$groups) return [false, 'There is nothing ticked to finalise.'];
 
-    // Golden rule: refuse the whole thing if any ticked group is out of balance.
+    // THE GOLDEN RULE. Only what balances is committed.
+    //
+    // It used to refuse the whole batch if anything was out, which was right
+    // when an unbalanced group meant a bug. Now that a rule can deliberately
+    // suggest a month that does not balance, refusing everything would make the
+    // good work hostage to the unfinished. So the ones that balance go through
+    // and the rest are carried forward to keep working on.
+    $ready = [];
+    $notYet = [];
     foreach ($groups as $g) {
-        if (!group_balances($g['ledger_total'], $g['bank_total'], $g['sign_mode'])) {
-            return [false, "Match {$g['group_no']} does not balance ("
-                . money($g['ledger_total']) . ' against ' . money($g['bank_total'])
-                . '). Nothing has been committed.'];
-        }
+        if (group_balances($g['ledger_total'], $g['bank_total'], $g['sign_mode'])) $ready[] = $g;
+        else $notYet[] = $g;
+    }
+    if (!$ready) {
+        return [false, 'None of the ticked matches balance yet, so there is nothing to commit. '
+            . 'Adjust what is in them until each one comes to nothing.'];
     }
 
+    $groups = $ready;
     $pdo->beginTransaction();
     try {
         $lines = $pdo->prepare("SELECT side, txn_id FROM rec_match_lines WHERE group_id = ?");
@@ -527,9 +581,30 @@ function finalise_run($runId)
         }
         // Anything unticked is thrown away, so those items come back as open.
         $pdo->prepare("DELETE FROM rec_match_groups WHERE run_id = ? AND accepted = 0")->execute([$runId]);
+
+        // Anything ticked that does not balance yet moves to a fresh run, so a
+        // finalised run holds only committed matches and the unfinished work is
+        // still there to come back to.
+        $carried = 0;
+        if ($notYet) {
+            $ref = make_run_ref();
+            $pdo->prepare("INSERT INTO rec_runs (run_ref, rec_id, note) VALUES (?,?,?)")
+                ->execute([$ref, $run['rec_id'] ?? null, 'Carried forward from ' . $run['run_ref']]);
+            $newRun = (int)$pdo->lastInsertId();
+            $ids = implode(',', array_map(fn($g) => (int)$g['id'], $notYet));
+            $pdo->prepare("UPDATE rec_match_groups SET run_id = ? WHERE id IN ($ids)")->execute([$newRun]);
+            $carried = count($notYet);
+        }
+
         $pdo->prepare("UPDATE rec_runs SET status='finalised', finalised_at=NOW() WHERE id=?")->execute([$runId]);
         $pdo->commit();
-        return [true, count($groups) . " matches committed, covering {$count} transactions."];
+
+        $msg = count($groups) . " matches committed, covering {$count} transactions.";
+        if ($carried) {
+            $msg .= ' ' . $carried . ' that did not balance ' . ($carried == 1 ? 'was' : 'were')
+                  . ' carried forward to a new run for you to keep working on.';
+        }
+        return [true, $msg];
     } catch (Throwable $e) {
         $pdo->rollBack();
         return [false, 'Nothing was committed: ' . $e->getMessage()];
@@ -642,4 +717,45 @@ function unmatch_selection(array $ledgerIds, array $bankIds)
         $pdo->rollBack();
         return [false, 'Nothing was unmatched: ' . $e->getMessage()];
     }
+}
+
+
+// Take lines out of a suggested (not yet committed) match, so a group that does
+// not balance can be trimmed until it does. What comes out goes back to the
+// open list simply by no longer being in the group.
+function drop_lines_from_groups($runId, array $lineIds)
+{
+    $lineIds = array_values(array_filter(array_map('intval', $lineIds)));
+    if (!$lineIds) return 0;
+    $pdo = db();
+
+    $in = implode(',', array_fill(0, count($lineIds), '?'));
+    $st = $pdo->prepare("SELECT DISTINCT l.group_id FROM rec_match_lines l
+                         JOIN rec_match_groups g ON g.id = l.group_id
+                         WHERE g.run_id = ? AND l.id IN ($in)");
+    $st->execute(array_merge([$runId], $lineIds));
+    $groupIds = array_column($st->fetchAll(), 'group_id');
+    if (!$groupIds) return 0;
+
+    $pdo->prepare("DELETE l FROM rec_match_lines l
+                   JOIN rec_match_groups g ON g.id = l.group_id
+                   WHERE g.run_id = ? AND l.id IN ($in)")
+        ->execute(array_merge([$runId], $lineIds));
+
+    // put each affected group's totals back in step with what it now holds
+    $sum = $pdo->prepare("SELECT side, COALESCE(SUM(value),0) total, COUNT(*) n
+                          FROM rec_match_lines WHERE group_id = ? GROUP BY side");
+    foreach ($groupIds as $gid) {
+        $sum->execute([$gid]);
+        $tot = ['ledger' => 0.0, 'bank' => 0.0];
+        $n = 0;
+        foreach ($sum->fetchAll() as $r) { $tot[$r['side']] = (float)$r['total']; $n += (int)$r['n']; }
+        if ($n === 0) {
+            $pdo->prepare("DELETE FROM rec_match_groups WHERE id = ?")->execute([$gid]);
+        } else {
+            $pdo->prepare("UPDATE rec_match_groups SET ledger_total = ?, bank_total = ? WHERE id = ?")
+                ->execute([$tot['ledger'], $tot['bank'], $gid]);
+        }
+    }
+    return count($lineIds);
 }

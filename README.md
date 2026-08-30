@@ -145,8 +145,10 @@ It follows the same show and direction filters, and downloads as a CSV for a
 working paper.
 
 **4. Review and finalise.** Suggestions are not committed until you say so.
-Untick anything you disagree with, then press Finalise. Only the ticked
-matches are written; anything unticked is thrown away and the items stay open.
+Untick a whole match to throw it away, or untick individual lines to take them
+out of one - the figure beside each match keeps up as you go. Only matches that
+balance are committed; anything still out is carried forward to a new run so you
+can keep working on it, rather than holding up everything else.
 
 Each matched transaction is stamped with the rule number that matched it and
 the reference of the run that did it, so you can always see why. The

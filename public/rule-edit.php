@@ -148,8 +148,11 @@ form to say which <b>bank</b> lines they should be paired with. Leave a box on &
 
   <div class="panel">
     <h2 style="margin-top:0">How the two sides are paired</h2>
-    <p class="small muted">A match is only ever made when both sides total exactly the same amount.
-       These settings decide which candidates are allowed to be paired in the first place.</p>
+    <p class="small muted">A match is only ever <b>committed</b> when both sides total exactly the same
+       amount. These settings decide which candidates are allowed to be paired in the first place.
+       One shape &mdash; everything in the same month &mdash; deliberately suggests groups that may
+       not balance, for files summarised differently from each other; you trim those by eye on the
+       review screen and nothing is committed until they come to nothing.</p>
     <div class="row">
       <div><label>Shape of the match</label>
         <select name="grouping">
