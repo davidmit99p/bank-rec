@@ -445,6 +445,9 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
             ?>
             <?= sort_head('Date', $pfx, 'date', $sortKey, $dir) ?>
             <?= sort_head('Description', $pfx, 'description', $sortKey, $dir) ?>
+            <?php foreach (extra_labels($side) as $label): ?>
+              <th><?= h($label) ?></th>
+            <?php endforeach; ?>
             <?= value_head($pfx, $sortKey, $dir) ?>
             <?php if (!$tickFirst) echo $allBox; ?>
           </tr></thead>
@@ -491,11 +494,14 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
                     echo is_numeric($t['rule_ref']) ? 'rule ' . h($t['rule_ref']) : h($t['rule_ref']); ?></span>
                   <span class="tag"><?= h($t['run_ref']) ?></span>
                 <?php endif; ?></td>
+              <?php foreach (array_keys(extra_labels($side)) as $key): ?>
+                <td class="small desc" title="<?= h((string)($t[$key] ?? '')) ?>"><?= h((string)($t[$key] ?? '')) ?></td>
+              <?php endforeach; ?>
               <td class="num <?= $t['value'] < 0 ? 'neg' : '' ?>"><?= money($t['value']) ?></td>
               <?php if (!$tickFirst) echo '<td class="tickcell">' . $noteBtn . $splitBtn . $box . '</td>'; ?>
             </tr>
           <?php endforeach; ?>
-          <?php if (!$rows): ?><tr><td colspan="4" class="muted">Nothing to show.</td></tr><?php endif; ?>
+          <?php if (!$rows): ?><tr><td colspan="<?= 4 + count(extra_labels($side)) ?>" class="muted">Nothing to show.</td></tr><?php endif; ?>
           </tbody>
         </table>
       </div>

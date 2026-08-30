@@ -49,6 +49,7 @@ echo "\xEF\xBB\xBF";   // so Excel opens it as UTF-8 rather than guessing
 
 $head = ['Date', 'Description', 'Value', 'Status', 'Rule', 'Run',
          'Split from', 'Source file', 'Reference'];
+foreach (extra_labels($side) as $label) $head[] = $label;
 if (extras_ready()) $head[] = 'Notes';
 fputcsv($out, $head);
 
@@ -66,6 +67,7 @@ foreach ($rows as $r) {
         $r['source_file'] ?? '',
         $r['id'],
     ];
+    foreach (array_keys(extra_labels($side)) as $key) $line[] = $r[$key] ?? '';
     if (extras_ready()) $line[] = $r['notes'] ?? '';
     fputcsv($out, $line);
 }

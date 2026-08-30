@@ -41,6 +41,15 @@ function build_preview($rows, $side, $token, $name, $headerRow = null, $dataStar
         if ($map[$k] === null) $map[$k] = ['date' => 0, 'description' => 1, 'value' => 2][$k];
     }
 
+    // the spare fields this side has been given a name for
+    $extras = extra_labels($side);
+    foreach ($extras as $key => $label) {
+        $map[$key] = null;
+        foreach ($header as $i => $name) {
+            if (strcasecmp(trim((string)$name), $label) === 0) { $map[$key] = $i; break; }
+        }
+    }
+
     // how many rows would actually import with these settings
     [$would, $skipped] = build_transactions($rows, $map, $dataStart - 1);
 
@@ -54,7 +63,7 @@ function build_preview($rows, $side, $token, $name, $headerRow = null, $dataStar
         'width' => max(1, $width), 'map' => $map,
         'header_row' => $headerRow, 'data_start' => $dataStart,
         'usable' => count($would), 'skipped' => $skipped,
-        'header' => $header, 'sample' => $dataRow,
+        'header' => $header, 'sample' => $dataRow, 'extras' => $extras,
     ];
 }
 
@@ -102,6 +111,10 @@ try {
             'description' => (int)$_POST['col_description'],
             'value'       => (int)$_POST['col_value'],
         ];
+        foreach (['extra1', 'extra2', 'extra3'] as $x) {
+            $picked = $_POST['col_' . $x] ?? '';
+            $map[$x] = ($picked === '' ? null : (int)$picked);
+        }
         $start = max(1, (int)($_POST['data_start'] ?? 1)) - 1;
         [$txns, $skipped] = build_transactions($rows, $map, $start);
         if (!$txns) throw new RuntimeException('No usable transactions were found. Check the column choices and the row the transactions start on.');
@@ -262,6 +275,30 @@ warning if the transactions appear to be in already.</p>
         </div>
         <?php endforeach; ?>
       </div>
+
+      <?php if ($preview['extras']): ?>
+      <div class="row">
+        <?php foreach ($preview['extras'] as $key => $label): ?>
+        <div>
+          <label><?= h($label) ?> <span class="muted small">(spare field)</span></label>
+          <select name="col_<?= $key ?>">
+            <option value="">not in this file</option>
+            <?php for ($i = 0; $i < $preview['width']; $i++):
+                $head = trim((string)($preview['header'][$i] ?? ''));
+                $samp = trim((string)($preview['sample'][$i] ?? ''));
+                $bits = array_filter([
+                    $head !== '' ? mb_substr($head, 0, 20) : '',
+                    $samp !== '' ? 'e.g. ' . mb_substr($samp, 0, 20) : '',
+                ]); ?>
+              <option value="<?= $i ?>"<?= (string)($preview['map'][$key] ?? '') === (string)$i ? ' selected' : '' ?>>
+                <?= chr(65 + $i) ?><?= $bits ? ' - ' . h(implode(' - ', $bits)) : '' ?>
+              </option>
+            <?php endfor; ?>
+          </select>
+        </div>
+        <?php endforeach; ?>
+      </div>
+      <?php endif; ?>
 
       <div class="actions">
         <?php

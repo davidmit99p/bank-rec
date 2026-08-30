@@ -35,15 +35,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $active = isset($_POST['active']) ? 1 : 0;
             if ($name === '') throw new RuntimeException('Give the reconciliation a name.');
 
+            // the spare field names, when the database has them
+            $ex = [];
+            if (extras_ready()) {
+                foreach (['l', 'b'] as $sp) {
+                    for ($i = 1; $i <= 3; $i++) {
+                        $ex[$sp . '_extra' . $i] = trim((string)($_POST[$sp . '_extra' . $i] ?? '')) ?: null;
+                    }
+                }
+            }
+            $exVals = array_values($ex);
+
             if ($id) {
+                $set = $ex ? ', ' . implode(', ', array_map(fn($k) => $k . '=?', array_keys($ex))) : '';
                 $pdo->prepare("UPDATE rec_recs SET name=?, left_label=?, right_label=?,
-                               sort_order=?, notes=?, active=? WHERE id=?")
-                    ->execute([$name, $left, $right, $order, $notes, $active, $id]);
+                               sort_order=?, notes=?, active=?{$set} WHERE id=?")
+                    ->execute(array_merge([$name, $left, $right, $order, $notes, $active], $exVals, [$id]));
                 flash('Saved.');
             } else {
-                $pdo->prepare("INSERT INTO rec_recs (name, left_label, right_label, sort_order, notes, active)
-                               VALUES (?,?,?,?,?,?)")
-                    ->execute([$name, $left, $right, $order, $notes, $active]);
+                $cols = $ex ? ', ' . implode(', ', array_keys($ex)) : '';
+                $qs   = $ex ? str_repeat(',?', count($ex)) : '';
+                $pdo->prepare("INSERT INTO rec_recs (name, left_label, right_label, sort_order, notes, active{$cols})
+                               VALUES (?,?,?,?,?,?{$qs})")
+                    ->execute(array_merge([$name, $left, $right, $order, $notes, $active], $exVals));
                 $new = (int)$pdo->lastInsertId();
                 if (session_status() === PHP_SESSION_NONE) session_start();
                 $_SESSION['rec_id'] = $new;      // switch straight to the new one
@@ -85,6 +99,7 @@ if ($editId) {
 }
 $blank = ['id' => 0, 'name' => '', 'left_label' => 'Ledger', 'right_label' => 'Bank',
           'sort_order' => 100, 'notes' => '', 'active' => 1];
+foreach (['l', 'b'] as $sp) for ($i = 1; $i <= 3; $i++) $blank[$sp . '_extra' . $i] = '';
 $f = $edit ?: $blank;
 
 // a line of numbers for each one
@@ -118,7 +133,12 @@ else on the site then shows only that one.</p>
       <td><?= $r['id'] == $here ? '<span class="tag manual">working on</span>' : '' ?></td>
       <td><b><?= h($r['name']) ?></b>
         <?php if ($r['notes']): ?><br><span class="muted small"><?= h($r['notes']) ?></span><?php endif; ?></td>
-      <td class="small"><?= h($r['left_label']) ?> / <?= h($r['right_label']) ?></td>
+      <td class="small"><?= h($r['left_label']) ?> / <?= h($r['right_label']) ?>
+        <?php if (extras_ready()):
+            $ex = array_filter([$r['l_extra1'] ?? '', $r['l_extra2'] ?? '', $r['l_extra3'] ?? '',
+                                $r['b_extra1'] ?? '', $r['b_extra2'] ?? '', $r['b_extra3'] ?? '']);
+            if ($ex): ?><br><span class="muted">+ <?= count($ex) ?> spare field<?= count($ex) == 1 ? '' : 's' ?></span>
+        <?php endif; endif; ?></td>
       <td class="num"><?= (int)$r['l_open'] ?><br><span class="muted small"><?= money($r['l_val']) ?></span></td>
       <td class="num"><?= (int)$r['b_open'] ?><br><span class="muted small"><?= money($r['b_val']) ?></span></td>
       <td class="num <?= abs($diff) < 0.005 ? 'pos' : 'neg' ?>"><?= money($diff) ?></td>
@@ -163,6 +183,27 @@ else on the site then shows only that one.</p>
   <p class="small muted">Those two are only what the screens say. For a bank account, Ledger and Bank.
     For a supplier account, you might use Purchase Ledger and Supplier Statement. The matching works
     the same either way.</p>
+
+  <?php if (extras_ready()): ?>
+    <h3 style="margin-top:1.2rem">Spare fields</h3>
+    <p class="small muted">Each side can carry three extra pieces of information from its file &mdash;
+      a reference, a cost centre, an invoice number &mdash; shown beside each transaction to help you
+      judge a match by eye. Name the ones you want and they appear on the import screen, the
+      transaction lists and the download. Leave a name empty and that field is not used. The rules do
+      not look at these.</p>
+    <div class="sides">
+      <?php foreach ([['l', $f['left_label'] ?: 'Ledger'], ['b', $f['right_label'] ?: 'Bank']] as [$sp, $sideName]): ?>
+        <div>
+          <span class="muted small">On the <?= h($sideName) ?> side</span>
+          <?php for ($i = 1; $i <= 3; $i++): ?>
+            <input type="text" name="<?= $sp ?>_extra<?= $i ?>" style="margin-top:.35rem"
+                   value="<?= h($f[$sp . '_extra' . $i] ?? '') ?>"
+                   placeholder="Spare field <?= $i ?> - leave empty if not needed">
+          <?php endfor; ?>
+        </div>
+      <?php endforeach; ?>
+    </div>
+  <?php endif; ?>
   <label>Notes</label>
   <textarea name="notes" placeholder="Account number, which system the ledger comes from, anything worth remembering"><?= h($f['notes']) ?></textarea>
   <div class="actions">

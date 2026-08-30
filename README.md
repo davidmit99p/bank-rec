@@ -115,6 +115,13 @@ amount. The original is kept and marked as split rather than deleted, so it
 drops out of the working list, the parts point back at it, and the split can be
 undone while none of its parts are matched.
 
+**Notes and spare fields.** Every transaction can carry a note - why it is still
+open, what it is waiting on - written from a pencil beside it. Each side of a
+reconciliation can also carry three spare fields from its file: a reference, a
+cost centre, an invoice number. Name them on the Reconciliations screen and they
+appear on the import screen to be mapped, as columns in the transaction lists,
+and in the download. They are there to be looked at; the rules do not use them.
+
 **Monthly summary.** The Summary screen totals each side by month with the
 difference between them, and carries that difference forward, so you can see
 which period a gap comes from instead of hunting through a long list. Months

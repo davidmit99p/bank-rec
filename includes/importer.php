@@ -381,6 +381,9 @@ function parse_amount($raw)
 // Turn raw rows into transactions ready for the database.
 // $startRow is a 0-based index: everything above it is ignored.
 // Returns [rows, skipped] where each row is [date, description, value].
+// $map may also carry extra1/extra2/extra3, each a column number, and those
+// come back as elements 3, 4 and 5 of each row. Anything already reading
+// [0], [1] and [2] carries on working.
 function build_transactions(array $rows, array $map, $startRow = 0)
 {
     $startRow = (int)$startRow;
@@ -392,7 +395,13 @@ function build_transactions(array $rows, array $map, $startRow = 0)
         $value = parse_amount($r[$map['value']] ?? '');
         $desc  = trim(preg_replace('/\s+/', ' ', (string)($r[$map['description']] ?? '')));
         if ($date === null || $value === null) { $skipped++; continue; }
-        $out[] = [$date, mb_substr($desc, 0, 500), $value];
+        $line = [$date, mb_substr($desc, 0, 500), $value];
+        foreach (['extra1', 'extra2', 'extra3'] as $x) {
+            $col = $map[$x] ?? null;
+            $line[] = ($col === null || $col === '') ? null
+                    : mb_substr(trim(preg_replace('/\s+/', ' ', (string)($r[(int)$col] ?? ''))), 0, 255);
+        }
+        $out[] = $line;
     }
     return [$out, $skipped];
 }
@@ -416,6 +425,14 @@ function imports_ready()
     return $ok;
 }
 
+// The spare-field columns, when the database has them.
+function extras_columns_sql()
+{
+    return function_exists('extras_ready') && extras_ready()
+        ? ['cols' => ', extra1, extra2, extra3', 'qs' => ',?,?,?']
+        : ['cols' => '', 'qs' => ''];
+}
+
 function insert_transactions($side, array $rows, $sourceFile)
 {
     $table = $side === 'ledger' ? 'rec_ledger' : 'rec_bank';
@@ -437,15 +454,25 @@ function insert_transactions($side, array $rows, $sourceFile)
                        $dates ? max($dates) : null]);
         $importId = (int)$pdo->lastInsertId();
 
-        $st = $pdo->prepare("INSERT INTO {$table} (txn_date, description, value, source_file, import_id{$recCol})
-                             VALUES (?,?,?,?,?{$recVal})");
-        foreach ($rows as $r) $st->execute([$r[0], $r[1], $r[2], $sourceFile, $importId]);
+        $xCol = extras_columns_sql();
+        $st = $pdo->prepare("INSERT INTO {$table} (txn_date, description, value, source_file, import_id{$recCol}{$xCol['cols']})
+                             VALUES (?,?,?,?,?{$recVal}{$xCol['qs']})");
+        foreach ($rows as $r) {
+            $vals = [$r[0], $r[1], $r[2], $sourceFile, $importId];
+            if ($xCol['cols']) { $vals[] = $r[3] ?? null; $vals[] = $r[4] ?? null; $vals[] = $r[5] ?? null; }
+            $st->execute($vals);
+        }
     } else {
-        $col = recs_ready() ? ', rec_id' : '';
-        $val = recs_ready() ? ', ' . (int)rec_id() : '';
-        $st = $pdo->prepare("INSERT INTO {$table} (txn_date, description, value, source_file{$col})
-                             VALUES (?,?,?,?{$val})");
-        foreach ($rows as $r) $st->execute([$r[0], $r[1], $r[2], $sourceFile]);
+        $col  = recs_ready() ? ', rec_id' : '';
+        $val  = recs_ready() ? ', ' . (int)rec_id() : '';
+        $xCol = extras_columns_sql();
+        $st = $pdo->prepare("INSERT INTO {$table} (txn_date, description, value, source_file{$col}{$xCol['cols']})
+                             VALUES (?,?,?,?{$val}{$xCol['qs']})");
+        foreach ($rows as $r) {
+            $vals = [$r[0], $r[1], $r[2], $sourceFile];
+            if ($xCol['cols']) { $vals[] = $r[3] ?? null; $vals[] = $r[4] ?? null; $vals[] = $r[5] ?? null; }
+            $st->execute($vals);
+        }
     }
     $pdo->commit();
     return count($rows);
