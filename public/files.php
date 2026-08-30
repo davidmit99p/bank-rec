@@ -105,7 +105,8 @@ render_header('Files');
       <td class="num"><?= number_format((int)$s['open_n']) ?></td>
       <td class="num <?= $s['open_total'] < 0 ? 'neg' : '' ?>"><?= money($s['open_total']) ?></td>
       <td class="small"><?php
-          if (!$by) echo '<span class="muted">nothing yet</span>';
+          if (!$by) echo '<span class="tag" style="background:#fdf6e6;color:#8a6d1f">'
+                       . 'not in a reconciliation yet</span>';
           else echo h(implode(', ', array_column($by, 'name'))); ?></td>
       <td style="display:flex;gap:.4rem">
         <a class="btn ghost small" href="import.php?file=<?= (int)$file['id'] ?>">Import</a>

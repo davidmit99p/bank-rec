@@ -19,7 +19,19 @@ $runs   = (int)$pdo->query("SELECT COUNT(*) FROM rec_runs WHERE status='finalise
 
 render_header();
 ?>
+<?php
+  $missing = [];
+  foreach (['ledger', 'bank'] as $sd) if (recs_ready() && side_file_id($sd) === null) $missing[] = side_label($sd);
+?>
 <h1>Bank Reconciliation</h1>
+<?php if ($missing): ?>
+  <div class="panel" style="background:#fdf6e6;border-color:#e8d9a8">
+    <p style="margin:0"><b>This reconciliation is not set up yet.</b>
+      There is no file behind <?= count($missing) === 2 ? 'either side' : 'its ' . h($missing[0]) . ' side' ?>,
+      so there is nothing to match. Load files on the <a href="files.php">Files</a> screen, then
+      <a href="recs.php?edit=<?= (int)rec_id() ?>">say which two this reconciliation pairs</a>.</p>
+  </div>
+<?php endif; ?>
 <p class="muted">Match your ledger against your bank statement using a growing library of rules.</p>
 
 <div class="stats">

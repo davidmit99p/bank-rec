@@ -312,6 +312,24 @@ items into view when something needs undoing.</p>
 
 <?php if ($error): ?><p class="flash" style="background:#fbeeee;border-color:#eccfcf;color:#a12f2f"><?= h($error) ?></p><?php endif; ?>
 
+<?php
+  // An empty screen with no explanation is no use. A side with no file behind
+  // it has nothing to show, and that is worth saying out loud.
+  $missing = [];
+  foreach (['ledger', 'bank'] as $sd) if (side_file_id($sd) === null) $missing[] = side_label($sd);
+  if ($missing && recs_ready()):
+?>
+  <div class="panel" style="background:#fdf6e6;border-color:#e8d9a8">
+    <p style="margin:0"><b>Nothing can be shown yet.</b>
+      This reconciliation has no file behind
+      <?= count($missing) === 2 ? 'either side' : 'its ' . h($missing[0]) . ' side' ?>.
+      A file is loaded on its own and then chosen as a side here.</p>
+    <p class="small muted" style="margin:.5rem 0 0">
+      <a href="recs.php?edit=<?= (int)rec_id() ?>">Say which files this reconciliation pairs</a>,
+      or <a href="files.php">look at what has been loaded</a>.</p>
+  </div>
+<?php endif; ?>
+
 <?php if ($draft): ?>
 <div class="panel" style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap">
   <b>Run <?= h($draft['run_ref']) ?> is open</b>
@@ -504,7 +522,10 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
               <?php if (!$tickFirst) echo '<td class="tickcell">' . $noteBtn . $splitBtn . $box . '</td>'; ?>
             </tr>
           <?php endforeach; ?>
-          <?php if (!$rows): ?><tr><td colspan="<?= 4 + count(extra_labels($side)) ?>" class="muted">Nothing to show.</td></tr><?php endif; ?>
+          <?php if (!$rows): ?><tr><td colspan="<?= 4 + count(extra_labels($side)) ?>" class="muted"><?php
+            echo side_file_id($side) === null
+              ? 'No file has been chosen for this side.'
+              : 'Nothing to show.'; ?></td></tr><?php endif; ?>
           </tbody>
         </table>
       </div>
