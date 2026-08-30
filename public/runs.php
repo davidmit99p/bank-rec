@@ -9,8 +9,7 @@ $pdo = db();
 if (($_POST['action'] ?? '') === 'unmatch') {
     $runId = (int)$_POST['run'];
     $pdo->beginTransaction();
-    $pdo->prepare("UPDATE rec_ledger SET run_id=NULL, rule_ref=NULL, group_no=NULL, matched_at=NULL WHERE run_id=?")->execute([$runId]);
-    $pdo->prepare("UPDATE rec_bank   SET run_id=NULL, rule_ref=NULL, group_no=NULL, matched_at=NULL WHERE run_id=?")->execute([$runId]);
+    $pdo->prepare("UPDATE rec_txns SET run_id=NULL, rule_ref=NULL, group_no=NULL, matched_at=NULL WHERE run_id=?")->execute([$runId]);
     $pdo->prepare("DELETE FROM rec_match_groups WHERE run_id=?")->execute([$runId]);
     $pdo->prepare("UPDATE rec_runs SET status='discarded' WHERE id=?")->execute([$runId]);
     $pdo->commit();
@@ -22,9 +21,13 @@ if (($_POST['action'] ?? '') === 'unmatch') {
 $runs = $pdo->query(
     "SELECT r.*,
             (SELECT COUNT(*) FROM rec_match_groups g WHERE g.run_id = r.id) groups_n,
-            (SELECT COUNT(*) FROM rec_ledger  t WHERE t.run_id = r.id) ledger_n,
-            (SELECT COUNT(*) FROM rec_bank    t WHERE t.run_id = r.id) bank_n,
-            (SELECT COALESCE(SUM(t.value),0) FROM rec_ledger t WHERE t.run_id = r.id) ledger_v
+            (SELECT COUNT(*) FROM rec_txns t JOIN rec_match_lines ml ON ml.txn_id = t.id AND ml.side='ledger'
+              WHERE t.run_id = r.id) ledger_n,
+            (SELECT COUNT(*) FROM rec_txns t JOIN rec_match_lines ml ON ml.txn_id = t.id AND ml.side='bank'
+              WHERE t.run_id = r.id) bank_n,
+            (SELECT COALESCE(SUM(t.value),0) FROM rec_txns t
+              JOIN rec_match_lines ml ON ml.txn_id = t.id AND ml.side='ledger'
+              WHERE t.run_id = r.id) ledger_v
      FROM rec_runs r WHERE " . rec_where('r') . " ORDER BY r.id DESC")->fetchAll();
 
 render_header('Runs');

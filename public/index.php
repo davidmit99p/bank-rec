@@ -2,16 +2,15 @@
 require_once __DIR__ . '/../includes/layout.php';
 
 $pdo = db();
-function side_stats($table)
+function side_stats($side)
 {
-    $r = db()->query("SELECT COUNT(*) total,
-                             SUM(matched_at IS NULL) open,
-                             COALESCE(SUM(CASE WHEN matched_at IS NULL THEN value ELSE 0 END),0) open_value
-                      FROM {$table} WHERE " . rec_where() . not_split())->fetch();
-    return $r;
+    return db()->query("SELECT COUNT(*) total,
+                               SUM(matched_at IS NULL) open,
+                               COALESCE(SUM(CASE WHEN matched_at IS NULL THEN value ELSE 0 END),0) open_value
+                        FROM rec_txns WHERE " . file_where($side, '') . not_split())->fetch();
 }
-$L = side_stats('rec_ledger');
-$B = side_stats('rec_bank');
+$L = side_stats('ledger');
+$B = side_stats('bank');
 $rules  = (int)$pdo->query("SELECT COUNT(*) FROM rec_rules WHERE active = 1" . rule_and())->fetchColumn();
 $draft  = $pdo->query("SELECT * FROM rec_runs WHERE status='draft'" . rec_and()
                       . " ORDER BY id DESC LIMIT 1")->fetch();

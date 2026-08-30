@@ -17,8 +17,7 @@ function splits_ready()
     static $ok = null;
     if ($ok === null) {
         try {
-            db()->query("SELECT parent_id, split_at FROM rec_ledger LIMIT 1");
-            db()->query("SELECT parent_id, split_at FROM rec_bank LIMIT 1");
+            db()->query("SELECT parent_id, split_at FROM rec_txns LIMIT 1");
             $ok = true;
         } catch (Throwable $e) {
             $ok = false;
@@ -36,9 +35,11 @@ function not_split($alias = '')
     return " AND {$p}split_at IS NULL";
 }
 
-function split_table($side)
+// Every transaction lives in one table now; the side only says which half of a
+// reconciliation it sits on.
+function split_table($side = null)
 {
-    return $side === 'ledger' ? 'rec_ledger' : 'rec_bank';
+    return 'rec_txns';
 }
 
 // Split $id into $parts, each ['value' => x, 'description' => '...'].
@@ -90,25 +91,19 @@ function split_transaction($side, $id, array $parts)
             . 'Deal with that run first, then split it.'];
     }
 
-    $hasRec    = has_column($table, 'rec_id');
-    $hasImport = has_column($table, 'import_id');
-
-    $cols = ['txn_date', 'description', 'value', 'source_file', 'parent_id'];
-    $vals = [];
-    if ($hasImport) $cols[] = 'import_id';
-    if ($hasRec)    $cols[] = 'rec_id';
+    $cols = ['txn_date', 'description', 'value', 'source_file', 'parent_id', 'file_id',
+             'import_id', 'extra1', 'extra2', 'extra3'];
 
     $pdo->beginTransaction();
     try {
         $sql = "INSERT INTO {$table} (" . implode(',', $cols) . ") VALUES ("
              . implode(',', array_fill(0, count($cols), '?')) . ")";
         $ins = $pdo->prepare($sql);
+        // the parts inherit everything about the original except the amount
         foreach ($clean as $p) {
-            $row = [$t['txn_date'], mb_substr($p['description'], 0, 500), $p['value'],
-                    $t['source_file'], (int)$id];
-            if ($hasImport) $row[] = $t['import_id'];
-            if ($hasRec)    $row[] = $t['rec_id'];
-            $ins->execute($row);
+            $ins->execute([$t['txn_date'], mb_substr($p['description'], 0, 500), $p['value'],
+                           $t['source_file'], (int)$id, $t['file_id'], $t['import_id'],
+                           $t['extra1'], $t['extra2'], $t['extra3']]);
         }
         $pdo->prepare("UPDATE {$table} SET split_at = NOW() WHERE id = ?")->execute([(int)$id]);
         $pdo->commit();

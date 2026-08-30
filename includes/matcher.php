@@ -6,6 +6,7 @@
 // amount. Nothing in this file creates an unbalanced match.
 // -----------------------------------------------------------------------------
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/files.php';
 require_once __DIR__ . '/context.php';
 require_once __DIR__ . '/splits.php';
 
@@ -220,9 +221,8 @@ function offsets_by_nearness($tol)
 // Everything not yet finalised as matched.
 function load_open($side)
 {
-    $table = $side === 'ledger' ? 'rec_ledger' : 'rec_bank';
-    return db()->query("SELECT id, txn_date, description, value FROM {$table}
-                        WHERE matched_at IS NULL" . rec_and() . not_split()
+    return db()->query("SELECT id, txn_date, description, value FROM rec_txns
+                        WHERE matched_at IS NULL AND " . file_where($side) . not_split()
                         . " ORDER BY txn_date, id")->fetchAll();
 }
 
@@ -515,17 +515,14 @@ function finalise_run($runId)
     $pdo->beginTransaction();
     try {
         $lines = $pdo->prepare("SELECT side, txn_id FROM rec_match_lines WHERE group_id = ?");
-        $upL = $pdo->prepare("UPDATE rec_ledger SET run_id=?, rule_ref=?, group_no=?, matched_at=NOW()
-                              WHERE id=? AND matched_at IS NULL");
-        $upB = $pdo->prepare("UPDATE rec_bank   SET run_id=?, rule_ref=?, group_no=?, matched_at=NOW()
-                              WHERE id=? AND matched_at IS NULL");
+        $up = $pdo->prepare("UPDATE rec_txns SET run_id=?, rule_ref=?, group_no=?, matched_at=NOW()
+                             WHERE id=? AND matched_at IS NULL");
         $count = 0;
         foreach ($groups as $g) {
             $lines->execute([$g['id']]);
             foreach ($lines->fetchAll() as $ln) {
-                $stmt = $ln['side'] === 'ledger' ? $upL : $upB;
-                $stmt->execute([$runId, $g['rule_ref'], $g['group_no'], $ln['txn_id']]);
-                $count += $stmt->rowCount();
+                $up->execute([$runId, $g['rule_ref'], $g['group_no'], $ln['txn_id']]);
+                $count += $up->rowCount();
             }
         }
         // Anything unticked is thrown away, so those items come back as open.
@@ -553,10 +550,9 @@ function unmatch_whole_group($groupId)
     $st->execute([$groupId]);
     $lines = $st->fetchAll();
 
-    $upL = $pdo->prepare("UPDATE rec_ledger SET run_id=NULL, rule_ref=NULL, group_no=NULL, matched_at=NULL WHERE id=?");
-    $upB = $pdo->prepare("UPDATE rec_bank   SET run_id=NULL, rule_ref=NULL, group_no=NULL, matched_at=NULL WHERE id=?");
+    $up = $pdo->prepare("UPDATE rec_txns SET run_id=NULL, rule_ref=NULL, group_no=NULL, matched_at=NULL WHERE id=?");
     foreach ($lines as $l) {
-        ($l['side'] === 'ledger' ? $upL : $upB)->execute([$l['txn_id']]);
+        $up->execute([$l['txn_id']]);
     }
     $pdo->prepare("DELETE FROM rec_match_groups WHERE id = ?")->execute([$groupId]);
     return count($lines);
@@ -609,14 +605,13 @@ function unmatch_selection(array $ledgerIds, array $bankIds)
         $freed = 0;
         $split = 0;
         $gone  = 0;
-        $upL = $pdo->prepare("UPDATE rec_ledger SET run_id=NULL, rule_ref=NULL, group_no=NULL, matched_at=NULL WHERE id=?");
-        $upB = $pdo->prepare("UPDATE rec_bank   SET run_id=NULL, rule_ref=NULL, group_no=NULL, matched_at=NULL WHERE id=?");
+        $up = $pdo->prepare("UPDATE rec_txns SET run_id=NULL, rule_ref=NULL, group_no=NULL, matched_at=NULL WHERE id=?");
 
         foreach ($sel as $gid => $sides) {
             foreach (['ledger', 'bank'] as $side) {
                 foreach ($sides[$side] ?? [] as $line) {
                     $pdo->prepare("DELETE FROM rec_match_lines WHERE id = ?")->execute([$line['line_id']]);
-                    ($side === 'ledger' ? $upL : $upB)->execute([$line['txn_id']]);
+                    $up->execute([$line['txn_id']]);
                     $freed++;
                 }
             }

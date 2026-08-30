@@ -11,7 +11,7 @@ $preview = null;   // set when we are showing the confirm-columns step
 
 // Build everything the preview screen needs. $headerRow and $dataStart are
 // 1-based row numbers as the user sees them; 0 means "there is no heading row".
-function build_preview($rows, $side, $token, $name, $headerRow = null, $dataStart = null)
+function build_preview($rows, $fileId, $token, $name, $headerRow = null, $dataStart = null)
 {
     $width = 0;
     foreach (array_slice($rows, 0, 50) as $r) $width = max($width, count($r));
@@ -43,8 +43,8 @@ function build_preview($rows, $side, $token, $name, $headerRow = null, $dataStar
     // a heading can mislead - check the choice against a real transaction row
     $map = check_columns($map, $dataRow, $fromData);
 
-    // the spare fields this side has been given a name for
-    $extras = extra_labels($side);
+    // the spare fields this file has been given a name for
+    $extras = file_extra_labels($fileId);
     foreach ($extras as $key => $label) {
         $map[$key] = null;
         foreach ($header as $i => $name) {
@@ -55,12 +55,12 @@ function build_preview($rows, $side, $token, $name, $headerRow = null, $dataStar
     // how many rows would actually import with these settings
     [$would, $skipped] = build_transactions($rows, $map, $dataStart - 1);
 
-    // is any of this already in the table? same date and same value
-    $dupes = $would ? find_existing_duplicates($side, $would) : [];
+    // is any of this already in the file? same date and same value
+    $dupes = $would ? find_existing_duplicates($fileId, $would) : [];
 
     return [
         'dupes' => $dupes,
-        'side' => $side, 'token' => $token, 'name' => $name,
+        'file_id' => $fileId, 'token' => $token, 'name' => $name,
         'rows' => array_slice($rows, 0, 15), 'count' => count($rows),
         'width' => max(1, $width), 'map' => $map,
         'header_row' => $headerRow, 'data_start' => $dataStart,
@@ -74,7 +74,8 @@ try {
 
     // --- a file has just been uploaded ---------------------------------------
     if ($stage === 'upload') {
-        $side = ($_POST['side'] ?? '') === 'bank' ? 'bank' : 'ledger';
+        $fileId = (int)($_POST['file_id'] ?? 0);
+        if (!$fileId || !get_file($fileId)) throw new RuntimeException('Choose which file this is going into.');
         if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
             throw new RuntimeException('Please choose a file to upload.');
         }
@@ -85,24 +86,26 @@ try {
         }
         $rows = read_table("$storage/$token", $name);
         if (!$rows) throw new RuntimeException('That file appears to be empty.');
-        $preview = build_preview($rows, $side, $token, $name);
+        $preview = build_preview($rows, $fileId, $token, $name);
     }
 
     // --- the row numbers were changed, look again ----------------------------
     if ($stage === 'repreview') {
-        $side  = ($_POST['side'] ?? '') === 'bank' ? 'bank' : 'ledger';
-        $token = basename($_POST['token'] ?? '');
+        $fileId = (int)($_POST['file_id'] ?? 0);
+        $token  = basename($_POST['token'] ?? '');
         $name  = ($_POST['name'] ?? '') ?: $token;
         if (!is_file("$storage/$token")) throw new RuntimeException('That upload has expired. Please choose the file again.');
         $rows = read_table("$storage/$token", $name);
-        $preview = build_preview($rows, $side, $token, $name,
+        $preview = build_preview($rows, $fileId, $token, $name,
                                  $_POST['header_row'] ?? null, $_POST['data_start'] ?? null);
     }
 
     // --- columns confirmed, do the import ------------------------------------
     if ($stage === 'confirm') {
-        $side  = ($_POST['side'] ?? '') === 'bank' ? 'bank' : 'ledger';
-        $token = basename($_POST['token'] ?? '');
+        $fileId = (int)($_POST['file_id'] ?? 0);
+        $file   = get_file($fileId);
+        if (!$file) throw new RuntimeException('Choose which file this is going into.');
+        $token  = basename($_POST['token'] ?? '');
         $name  = ($_POST['name'] ?? '') ?: $token;
         $path  = "$storage/$token";
         if (!is_file($path)) throw new RuntimeException('That upload has expired. Please choose the file again.');
@@ -121,9 +124,9 @@ try {
         [$txns, $skipped] = build_transactions($rows, $map, $start);
         if (!$txns) throw new RuntimeException('No usable transactions were found. Check the column choices and the row the transactions start on.');
 
-        $n = insert_transactions($side, $txns, $name);
+        $n = insert_transactions($fileId, $txns, $name);
         @unlink($path);
-        flash("Imported {$n} {$side} transactions from " . $name
+        flash("Imported {$n} transactions from " . $name . ' into ' . $file['name']
               . ($skipped ? " ({$skipped} rows skipped - no usable date or value)." : '.'));
         header('Location: transactions.php');
         exit;
@@ -137,39 +140,36 @@ try {
         else { header('Location: import.php'); exit; }
     }
 
-    // --- clearing a table ----------------------------------------------------
-    if ($stage === 'clear') {
-        $side  = ($_POST['side'] ?? '') === 'bank' ? 'bank' : 'ledger';
-        $table = $side === 'ledger' ? 'rec_ledger' : 'rec_bank';
-        $open  = (int)db()->query("SELECT COUNT(*) FROM {$table} WHERE matched_at IS NULL"
-                                  . rec_and())->fetchColumn();
-        db()->exec("DELETE FROM {$table} WHERE matched_at IS NULL" . rec_and());
-        flash("Removed {$open} unmatched {$side} transactions. Matched history was left alone.");
-        header('Location: import.php');
-        exit;
-    }
 } catch (Throwable $e) {
     $error = $e->getMessage();
 }
 
-$counts = [
-    'ledger' => db()->query("SELECT COUNT(*) c, SUM(matched_at IS NULL) o FROM rec_ledger WHERE " . rec_where() . not_split())->fetch(),
-    'bank'   => db()->query("SELECT COUNT(*) c, SUM(matched_at IS NULL) o FROM rec_bank WHERE " . rec_where() . not_split())->fetch(),
-];
+$files    = all_files();
+$pickFile = (int)($_GET['file'] ?? 0);
 
 render_header('Import');
 ?>
 <h1>1. Import transactions</h1>
-<p class="muted">Ledger on the left, bank on the right. CSV or Excel. Importing adds to what is already
-there, so you can load a month at a time. Before anything is loaded you get a look at the file, and a
-warning if the transactions appear to be in already.</p>
+<p class="muted">Load a file, whatever it is. A file stands on its own &mdash; you do not have to decide
+  what it is reconciled against first, and the same file can be used by more than one reconciliation.
+  CSV or Excel. Importing adds to what is already there, so you can load a month at a time. Before
+  anything goes in you get a look at the file, and a warning if the transactions appear to be in
+  already.</p>
 
 <?php if ($error): ?><p class="flash" style="background:#fbeeee;border-color:#eccfcf;color:#a12f2f"><?= h($error) ?></p><?php endif; ?>
 
-<?php if ($preview): ?>
+<?php if (!$files): ?>
+  <div class="panel" style="background:#fdf6e6;border-color:#e8d9a8">
+    <p style="margin:0"><b>There are no files yet.</b> A file is the thing you load into &mdash; a bank
+      statement, a ledger extract. <a href="files.php">Create one first</a>, then come back.</p>
+  </div>
+<?php endif; ?>
+
+<?php if ($preview): $pf = get_file($preview['file_id']); ?>
   <div class="panel">
     <h2 style="margin-top:0">Check the file &mdash; <?= h($preview['name']) ?></h2>
-    <p class="muted"><?= (int)$preview['count'] ?> rows in the file.
+    <p class="muted">Going into <b><?= h($pf['name'] ?? 'a file') ?></b>.
+      <?= (int)$preview['count'] ?> rows in the file.
       With these settings <b><?= (int)$preview['usable'] ?></b> would import<?php
         if ($preview['skipped']): ?>, and <?= (int)$preview['skipped'] ?>
         would be skipped for having no usable date or value<?php endif; ?>.</p>
@@ -177,15 +177,15 @@ warning if the transactions appear to be in already.</p>
     <?php if ($preview['dupes']): ?>
       <div class="panel" style="background:#fdf6e6;border-color:#e8d9a8">
         <h3 style="margin-top:0">&#9888; <?= count($preview['dupes']) ?>
-          of these transactions look like they are already loaded</h3>
-        <p class="muted small">Same date and same value. That usually means the file, or part of it, has
-          been imported before. Have a look and decide &mdash; importing anyway will give you two copies
-          of each. If it turns out you have loaded something twice, you can remove a whole file lower
-          down this page.</p>
+          of these look like they are already in this file</h3>
+        <p class="muted small">Same date and same value. That usually means the file, or part of it,
+          has been imported before. Have a look and decide &mdash; importing anyway will give you two
+          copies of each. If it turns out you have loaded something twice, you can remove a whole
+          import lower down this page.</p>
         <div class="scroll" style="max-height:22rem">
           <table>
             <thead><tr>
-              <th colspan="3" style="border-bottom:2px solid var(--accent)">Already in the <?= h($preview['side']) ?> table</th>
+              <th colspan="3" style="border-bottom:2px solid var(--accent)">Already in <?= h($pf['name'] ?? '') ?></th>
               <th colspan="3" style="border-bottom:2px solid var(--accent)">In the file you are importing</th>
             </tr>
             <tr><th>Date</th><th>Description</th><th class="num">Value</th>
@@ -218,9 +218,9 @@ warning if the transactions appear to be in already.</p>
     <?php endif; ?>
 
     <form method="post">
-      <input type="hidden" name="side"  value="<?= h($preview['side']) ?>">
-      <input type="hidden" name="token" value="<?= h($preview['token']) ?>">
-      <input type="hidden" name="name"  value="<?= h($preview['name']) ?>">
+      <input type="hidden" name="file_id" value="<?= (int)$preview['file_id'] ?>">
+      <input type="hidden" name="token"   value="<?= h($preview['token']) ?>">
+      <input type="hidden" name="name"    value="<?= h($preview['name']) ?>">
 
       <div class="row" style="align-items:end">
         <div><label>Heading row <span class="muted small">(0 if none)</span></label>
@@ -278,14 +278,13 @@ warning if the transactions appear to be in already.</p>
         <?php endforeach; ?>
       </div>
 
-      <?php if (extras_ready() && !$preview['extras']): ?>
-        <p class="small muted" style="margin-top:.75rem">Only the date, description and value are
+      <?php if (!$preview['extras']): ?>
+        <p class="small muted" style="margin-top:.75rem">Only the date, description and value are being
           brought in. To carry more from this file &mdash; a reference, a type, a cost centre &mdash;
-          give the <?= h(side_label($preview['side'])) ?> side some
-          <a href="recs.php?edit=<?= (int)rec_id() ?>">spare field names</a> first, then import again.</p>
-      <?php endif; ?>
-
-      <?php if ($preview['extras']): ?>
+          give <?= h($pf['name'] ?? 'the file') ?> some
+          <a href="files.php?edit=<?= (int)$preview['file_id'] ?>">spare field names</a> first, then
+          import again.</p>
+      <?php else: ?>
       <div class="row">
         <?php foreach ($preview['extras'] as $key => $label): ?>
         <div>
@@ -317,72 +316,63 @@ warning if the transactions appear to be in already.</p>
         ?>
         <button class="btn" type="submit" name="stage" value="confirm"
           <?= $warn ? 'onclick="return confirm(' . h(json_encode($warn)) . ')"' : '' ?>>
-          Import <?= (int)$preview['usable'] ?> rows into the <?= h($preview['side']) ?> table</button>
+          Import <?= (int)$preview['usable'] ?> rows into <?= h($pf['name'] ?? 'the file') ?></button>
         <a class="btn ghost" href="import.php">Cancel</a>
       </div>
     </form>
   </div>
 <?php endif; ?>
 
-<div class="sides">
-<?php foreach (['ledger' => side_label('ledger') . ' (table 1)', 'bank' => side_label('bank') . ' (table 2)'] as $side => $title): ?>
-  <div class="panel">
-    <div class="side-head"><h2><?= $title ?></h2>
-      <span class="muted small"><?= (int)$counts[$side]['c'] ?> rows,
-        <?= (int)$counts[$side]['o'] ?> open</span></div>
-    <form method="post" enctype="multipart/form-data">
-      <input type="hidden" name="stage" value="upload">
-      <input type="hidden" name="side"  value="<?= $side ?>">
-      <label>Choose a file</label>
-      <input type="file" name="file" accept=".csv,.txt,.tsv,.xlsx,.xlsm" required>
-      <div class="actions"><button class="btn" type="submit">Upload and preview</button></div>
-    </form>
-    <form method="post" onsubmit="return confirm('Remove all unmatched <?= $side ?> transactions?')"
-          style="margin-top:1rem;border-top:1px solid var(--line);padding-top:.75rem">
-      <input type="hidden" name="stage" value="clear">
-      <input type="hidden" name="side"  value="<?= $side ?>">
-      <button class="btn ghost danger" type="submit" style="background:transparent;color:var(--bad)">
-        Clear unmatched <?= $side ?> items</button>
-    </form>
-  </div>
-<?php endforeach; ?>
+<?php if ($files): ?>
+<div class="panel">
+  <h2 style="margin-top:0">Load a file</h2>
+  <form method="post" enctype="multipart/form-data">
+    <input type="hidden" name="stage" value="upload">
+    <div class="row" style="align-items:end">
+      <div><label>Into which file</label>
+        <select name="file_id" required>
+          <option value="">choose...</option>
+          <?php foreach ($files as $ff): ?>
+            <option value="<?= (int)$ff['id'] ?>"<?= $pickFile === (int)$ff['id'] ? ' selected' : '' ?>>
+              <?= h($ff['name']) ?></option>
+          <?php endforeach; ?>
+        </select></div>
+      <div style="flex:2"><label>Choose a file from your computer</label>
+        <input type="file" name="file" accept=".csv,.txt,.tsv,.xlsx,.xlsm" required></div>
+      <div><label>&nbsp;</label>
+        <button class="btn" type="submit">Upload and preview</button></div>
+    </div>
+  </form>
+  <p class="small muted" style="margin-bottom:0">Not there? <a href="files.php">Add a file</a> first.</p>
 </div>
-<h2>Files already loaded</h2>
-<p class="muted small">Removing an import and loading the file again is also how you pick up columns
-that were not being captured at the time &mdash; spare fields added after the event, for instance.</p>
-<?php if (!imports_ready()): ?>
-  <div class="panel" style="background:#fdf6e6;border-color:#e8d9a8">
-    <p style="margin:0"><b>One database change is needed before this works.</b>
-      In phpMyAdmin, run <code>sql/migration_002_imports.sql</code> against
-      <code>entigy_recon</code>. Everything else on this page works as normal in the meantime;
-      imports done before that point simply cannot be removed as a batch.</p>
-  </div>
 <?php endif; ?>
-<p class="muted">Loaded the wrong file, or the same one twice? Remove the whole batch here. Anything from
-that file which has already been matched is unmatched first &mdash; a whole match at a time, so nothing
-is left half matched.</p>
+
+<h2>Imports already loaded</h2>
+<p class="muted small">Loaded the wrong thing, or the same file twice? Remove the whole batch here.
+  Anything from it that has already been matched is unmatched first &mdash; a whole match at a time,
+  so nothing is left half matched. Removing and reloading is also how you pick up columns that were
+  not being captured at the time, such as spare fields added after the event.</p>
 
 <?php $imports = list_imports(); ?>
 <div class="panel">
 <table>
-  <thead><tr><th>Loaded</th><th>Into</th><th>File</th><th class="num">Rows</th>
+  <thead><tr><th>Loaded</th><th>Into</th><th>From</th><th class="num">Rows</th>
     <th class="num">Value</th><th>Covering</th><th class="num">Still there</th>
     <th class="num">Matched</th><th></th></tr></thead>
   <tbody>
   <?php foreach ($imports as $imp):
       $note = $imp['matched']
-        ? $imp['matched'] . ' of these are matched and would be unmatched first. '
-        : '';
+        ? $imp['matched'] . ' of these are matched and would be unmatched first. ' : '';
   ?>
     <tr>
       <td class="small"><?= h($imp['imported_at']) ?></td>
-      <td><span class="tag"><?= h($imp['side']) ?></span></td>
+      <td><?= h($imp['file_name'] ?? '') ?></td>
       <td class="desc" title="<?= h($imp['filename']) ?>"><?= h($imp['filename']) ?></td>
-      <td class="num"><?= (int)$imp['row_count'] ?></td>
+      <td class="num"><?= number_format((int)$imp['row_count']) ?></td>
       <td class="num <?= $imp['total_value'] < 0 ? 'neg' : '' ?>"><?= money($imp['total_value']) ?></td>
       <td class="small"><?= h($imp['date_from']) ?> to <?= h($imp['date_to']) ?></td>
-      <td class="num"><?= (int)$imp['still_there'] ?></td>
-      <td class="num"><?= (int)$imp['matched'] ?></td>
+      <td class="num"><?= number_format((int)$imp['still_there']) ?></td>
+      <td class="num"><?= number_format((int)$imp['matched']) ?></td>
       <td>
         <form method="post" onsubmit="return confirm(<?= h(json_encode(
             $note . 'Remove all ' . (int)$imp['still_there'] . ' transactions loaded from '
@@ -396,8 +386,7 @@ is left half matched.</p>
     </tr>
   <?php endforeach; ?>
   <?php if (!$imports): ?>
-    <tr><td colspan="9" class="muted">Nothing loaded yet. Files imported before this feature was
-      added are not listed here and cannot be removed as a batch.</td></tr>
+    <tr><td colspan="9" class="muted">Nothing loaded yet.</td></tr>
   <?php endif; ?>
   </tbody>
 </table>

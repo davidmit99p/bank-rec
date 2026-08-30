@@ -14,9 +14,9 @@ if (!$wantIn && !$wantOut) { $wantIn = $wantOut = true; }
 $sign = $wantIn && $wantOut ? 'both' : ($wantIn ? 'in' : 'out');
 
 // One side's totals, a row per month.
-function monthly($table, $show, $sign)
+function monthly($side, $show, $sign)
 {
-    $where = [rec_where('t')];
+    $where = [file_where($side, 't')];
     if ($show === 'open')    $where[] = 't.matched_at IS NULL';
     if ($show === 'matched') $where[] = 't.matched_at IS NOT NULL';
     if ($sign === 'in')      $where[] = 't.value > 0';
@@ -24,7 +24,7 @@ function monthly($table, $show, $sign)
     $sql = "SELECT DATE_FORMAT(t.txn_date, '%Y-%m') ym,
                    COUNT(*) n,
                    COALESCE(SUM(t.value), 0) total
-            FROM {$table} t
+            FROM rec_txns t
             WHERE " . implode(' AND ', $where) . not_split('t') . "
             GROUP BY ym ORDER BY ym";
     $out = [];
@@ -32,8 +32,8 @@ function monthly($table, $show, $sign)
     return $out;
 }
 
-$L = monthly('rec_ledger', $show, $sign);
-$B = monthly('rec_bank',   $show, $sign);
+$L = monthly('ledger', $show, $sign);
+$B = monthly('bank',   $show, $sign);
 
 $months = array_keys($L + $B);
 sort($months);

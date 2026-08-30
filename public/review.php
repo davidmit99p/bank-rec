@@ -94,8 +94,8 @@ $lineSql = $pdo->prepare(
             COALESCE(le.txn_date, bk.txn_date)       AS txn_date,
             COALESCE(le.description, bk.description) AS description
      FROM rec_match_lines l
-     LEFT JOIN rec_ledger le ON l.side = 'ledger' AND le.id = l.txn_id
-     LEFT JOIN rec_bank   bk ON l.side = 'bank'   AND bk.id = l.txn_id
+     LEFT JOIN rec_txns le ON le.id = l.txn_id
+     LEFT JOIN rec_txns bk ON bk.id = l.txn_id
      WHERE l.group_id = ? ORDER BY txn_date, l.txn_id");
 
 $byRule = [];

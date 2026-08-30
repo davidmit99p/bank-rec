@@ -20,7 +20,7 @@ function recs_ready()
     if ($ok === null) {
         try {
             db()->query("SELECT id FROM rec_recs LIMIT 1");
-            db()->query("SELECT rec_id FROM rec_ledger LIMIT 1");
+            db()->query("SELECT rec_id FROM rec_runs LIMIT 1");
             $ok = true;
         } catch (Throwable $e) {
             $ok = false;
@@ -75,7 +75,7 @@ function side_label($side)
 // A WHERE fragment scoping a query to the current reconciliation, or an empty
 // string when there is nothing to scope to. $alias is the table alias, if any.
 //
-//   "SELECT ... FROM rec_ledger t WHERE t.matched_at IS NULL" . rec_and('t')
+//   "SELECT ... FROM rec_runs r WHERE r.status = 'draft'" . rec_and('r')
 function rec_and($alias = '')
 {
     $id = rec_id();

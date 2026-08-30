@@ -45,19 +45,15 @@ $args  = [];
 // the bank narrative rarely say the same thing
 if ($q !== '') {
     $where[] = "EXISTS (SELECT 1 FROM rec_match_lines l
-                        LEFT JOIN rec_ledger le ON l.side='ledger' AND le.id = l.txn_id
-                        LEFT JOIN rec_bank   bk ON l.side='bank'   AND bk.id = l.txn_id
-                        WHERE l.group_id = g.id
-                          AND COALESCE(le.description, bk.description) LIKE ?)";
+                        JOIN rec_txns t ON t.id = l.txn_id
+                        WHERE l.group_id = g.id AND t.description LIKE ?)";
     $args[] = '%' . $q . '%';
 }
 foreach ([['>=', $from], ['<=', $to]] as [$op, $val]) {
     if ($val === '') continue;
     $where[] = "EXISTS (SELECT 1 FROM rec_match_lines l
-                        LEFT JOIN rec_ledger le ON l.side='ledger' AND le.id = l.txn_id
-                        LEFT JOIN rec_bank   bk ON l.side='bank'   AND bk.id = l.txn_id
-                        WHERE l.group_id = g.id
-                          AND COALESCE(le.txn_date, bk.txn_date) {$op} ?)";
+                        JOIN rec_txns t ON t.id = l.txn_id
+                        WHERE l.group_id = g.id AND t.txn_date {$op} ?)";
     $args[] = $val;
 }
 if ($minV !== '' && is_numeric($minV)) {
@@ -85,12 +81,9 @@ $lines = [];
 if ($groups) {
     $ids = implode(',', array_map(fn($g) => (int)$g['id'], $groups));
     foreach ($pdo->query(
-        "SELECT l.group_id, l.side, l.txn_id, l.value,
-                COALESCE(le.txn_date, bk.txn_date)       AS txn_date,
-                COALESCE(le.description, bk.description) AS description
+        "SELECT l.group_id, l.side, l.txn_id, l.value, t.txn_date, t.description
          FROM rec_match_lines l
-         LEFT JOIN rec_ledger le ON l.side = 'ledger' AND le.id = l.txn_id
-         LEFT JOIN rec_bank   bk ON l.side = 'bank'   AND bk.id = l.txn_id
+         JOIN rec_txns t ON t.id = l.txn_id
          WHERE l.group_id IN ($ids)
          ORDER BY txn_date, l.txn_id")->fetchAll() as $l) {
         $lines[$l['group_id']][$l['side']][] = $l;

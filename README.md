@@ -17,6 +17,21 @@ This is enforced in three separate places:
 - Finalise checks every ticked group again and refuses the whole batch if
   one of them is out.
 
+## Files and reconciliations
+
+A **file** is something you loaded - a bank statement, a ledger extract. It has
+a name, its own spare field names, and its own transactions. It stands on its
+own: you do not have to decide what it will be reconciled against before you can
+load it.
+
+A **reconciliation** pairs two files and gives the two sides their labels. The
+same file can be used by more than one reconciliation, which is what makes a
+chain possible - A against B, then B against C, without loading B twice.
+
+Spare fields belong to the file rather than the reconciliation, because the file
+is the thing with the columns. Naming them on the reconciliation would mean
+naming the same file's columns again in every reconciliation it appears in.
+
 ## More than one reconciliation
 
 The tool holds as many reconciliations as you like - one per bank account, or a

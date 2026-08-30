@@ -66,16 +66,19 @@ if (($_POST['action'] ?? '') === 'manual') {
 
         // A contra ticks one side only, so the other side's list is empty.
         // "IN ()" is not valid SQL, so answer that case without asking.
-        $fetch = function ($table, $ids) {
+        // A contra ticks one side only, so the other side's list is empty.
+        // "IN ()" is not valid SQL, so answer that case without asking.
+        $fetch = function ($side, $ids) {
             if (!$ids) return [];
             $in = implode(',', array_fill(0, count($ids), '?'));
-            $st = db()->prepare("SELECT id, value FROM {$table} WHERE id IN ($in) AND matched_at IS NULL"
-                                . rec_and() . not_split());
+            $st = db()->prepare("SELECT id, value FROM rec_txns
+                                 WHERE id IN ($in) AND matched_at IS NULL AND "
+                                . file_where($side, '') . not_split());
             $st->execute($ids);
             return $st->fetchAll();
         };
-        $lRows = $fetch('rec_ledger', $lIds);
-        $bRows = $fetch('rec_bank',   $bIds);
+        $lRows = $fetch('ledger', $lIds);
+        $bRows = $fetch('bank',   $bIds);
         if (count($lRows) !== count($lIds) || count($bRows) !== count($bIds)) {
             throw new RuntimeException('Some of those items have already been matched. Refresh and try again.');
         }

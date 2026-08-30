@@ -10,15 +10,14 @@
 // -----------------------------------------------------------------------------
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/context.php';
+require_once __DIR__ . '/files.php';
 
 function extras_ready()
 {
     static $ok = null;
     if ($ok === null) {
         try {
-            db()->query("SELECT notes, extra1, extra2, extra3 FROM rec_ledger LIMIT 1");
-            db()->query("SELECT notes, extra1, extra2, extra3 FROM rec_bank LIMIT 1");
-            db()->query("SELECT l_extra1, b_extra1 FROM rec_recs LIMIT 1");
+            db()->query("SELECT notes, extra1, extra2, extra3 FROM rec_txns LIMIT 1");
             $ok = true;
         } catch (Throwable $e) {
             $ok = false;
@@ -27,20 +26,15 @@ function extras_ready()
     return $ok;
 }
 
-// What this reconciliation calls its spare fields on one side.
-// Returns [columnName => label] for the ones that have been named, in order.
+// The spare fields named on the FILE sitting on this side.
+//
+// They belong to the file because that is the thing with the columns. The same
+// file can appear in several reconciliations and must not need naming again in
+// each of them - which is what was wrong when these lived on the reconciliation.
 function extra_labels($side)
 {
-    if (!extras_ready()) return [];
-    $rec = current_rec();
-    if (!$rec) return [];
-    $p = $side === 'ledger' ? 'l_' : 'b_';
-    $out = [];
-    for ($i = 1; $i <= 3; $i++) {
-        $label = trim((string)($rec[$p . 'extra' . $i] ?? ''));
-        if ($label !== '') $out['extra' . $i] = $label;
-    }
-    return $out;
+    if (!extras_ready() || !files_ready()) return [];
+    return file_extra_labels(side_file_id($side));
 }
 
 // Save a note against one transaction.
@@ -49,9 +43,8 @@ function save_note_on($side, $id, $text)
     if (!extras_ready()) {
         return [false, 'The database has not been updated for notes yet - run sql/migration_006_notes_and_extras.sql.'];
     }
-    $table = $side === 'ledger' ? 'rec_ledger' : 'rec_bank';
-    $text  = trim((string)$text);
-    $st = db()->prepare("UPDATE {$table} SET notes = ? WHERE id = ?" . rec_and());
+    $text = trim((string)$text);
+    $st = db()->prepare("UPDATE rec_txns SET notes = ? WHERE id = ? AND " . file_where($side, ''));
     $st->execute([$text === '' ? null : $text, (int)$id]);
     if (!$st->rowCount()) return [true, 'No change to save.'];
     return [true, $text === '' ? 'Note removed.' : 'Note saved.'];
@@ -63,8 +56,9 @@ function save_note_on($side, $id, $text)
 function available_months()
 {
     $sql = [];
-    foreach (['rec_ledger', 'rec_bank'] as $t) {
-        $sql[] = "SELECT DISTINCT DATE_FORMAT(t.txn_date, '%Y-%m') ym FROM {$t} t WHERE " . rec_where('t');
+    foreach (['ledger', 'bank'] as $side) {
+        $sql[] = "SELECT DISTINCT DATE_FORMAT(t.txn_date, '%Y-%m') ym FROM rec_txns t WHERE "
+               . file_where($side, 't');
     }
     $rows = db()->query(implode(' UNION ', $sql) . " ORDER BY ym DESC")->fetchAll(PDO::FETCH_COLUMN);
     $out = [];

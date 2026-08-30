@@ -2,6 +2,7 @@
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/context.php';
 require_once __DIR__ . '/splits.php';
+require_once __DIR__ . '/files.php';
 require_once __DIR__ . '/extras.php';
 
 // Switching reconciliation redirects, so it must happen before any output.
@@ -17,6 +18,7 @@ function render_header($title = '')
     $here = basename($_SERVER['SCRIPT_NAME'] ?? '');
     $nav = [
         'index.php'        => 'Home',
+        'files.php'        => 'Files',
         'import.php'       => '1. Import',
         'rules.php'        => '2. Rules',
         'transactions.php' => '3. Transactions',

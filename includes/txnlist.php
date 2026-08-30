@@ -6,6 +6,7 @@
 // a download is exactly what was on screen - same filters, same order.
 // -----------------------------------------------------------------------------
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/files.php';
 require_once __DIR__ . '/context.php';
 require_once __DIR__ . '/splits.php';
 
@@ -38,8 +39,8 @@ function order_expression($sortKey, $dir)
 // underneath it.
 function item_filters($side, $q, $from, $to, $show, $sign)
 {
-    $table = $side === 'ledger' ? 'rec_ledger' : 'rec_bank';
-    $where = [rec_where('t')];
+    $table = 'rec_txns';
+    $where = [file_where($side, 't')];
     $args  = [];
 
     if ($show === 'open')    $where[] = 't.matched_at IS NULL';
@@ -63,7 +64,7 @@ function item_filters($side, $q, $from, $to, $show, $sign)
                         JOIN rec_match_groups mg ON mg.id = ml.group_id
                         JOIN rec_runs mr ON mr.id = mg.run_id AND mr.status = 'draft'"
                         . rec_and('mr') . "
-                        WHERE ml.side = '{$side}' AND ml.txn_id = t.id))";
+                        WHERE ml.txn_id = t.id))";
     }
 
     return [$table, ' WHERE ' . implode(' AND ', $where), $args];
@@ -89,13 +90,10 @@ function list_items($side, $q, $from, $to, $show = 'open', $sortKey = 'date', $d
 {
     [$table, $where, $args] = item_filters($side, $q, $from, $to, $show, $sign);
 
-    $parentVal = splits_ready()
-        ? ", (SELECT p.value FROM {$table} p WHERE p.id = t.parent_id) AS parent_value"
-        : ", NULL AS parent_value";
-
-    $sql = "SELECT t.*, r.run_ref{$parentVal},
+    $sql = "SELECT t.*, r.run_ref,
+                   (SELECT p.value FROM rec_txns p WHERE p.id = t.parent_id) AS parent_value,
                    (SELECT l.group_id FROM rec_match_lines l
-                     WHERE l.side = '{$side}' AND l.txn_id = t.id LIMIT 1) AS group_id
+                     WHERE l.txn_id = t.id LIMIT 1) AS group_id
             FROM {$table} t
             LEFT JOIN rec_runs r ON r.id = t.run_id"
          . $where

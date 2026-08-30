@@ -35,13 +35,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $active = isset($_POST['active']) ? 1 : 0;
             if ($name === '') throw new RuntimeException('Give the reconciliation a name.');
 
-            // the spare field names, when the database has them
+            // which two files this reconciliation pairs
             $ex = [];
-            if (extras_ready()) {
-                foreach (['l', 'b'] as $sp) {
-                    for ($i = 1; $i <= 3; $i++) {
-                        $ex[$sp . '_extra' . $i] = trim((string)($_POST[$sp . '_extra' . $i] ?? '')) ?: null;
-                    }
+            if (files_ready()) {
+                $ex['left_file_id']  = ((int)($_POST['left_file_id'] ?? 0))  ?: null;
+                $ex['right_file_id'] = ((int)($_POST['right_file_id'] ?? 0)) ?: null;
+                if ($ex['left_file_id'] && $ex['left_file_id'] === $ex['right_file_id']) {
+                    throw new RuntimeException('The two sides have to be different files.');
                 }
             }
             $exVals = array_values($ex);
@@ -69,16 +69,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($action === 'delete') {
             $id = (int)$_POST['id'];
-            $counts = [];
-            foreach (['rec_ledger' => 'ledger', 'rec_bank' => 'bank'] as $t => $label) {
-                $st = $pdo->prepare("SELECT COUNT(*) FROM {$t} WHERE rec_id = ?");
-                $st->execute([$id]);
-                $counts[$label] = (int)$st->fetchColumn();
-            }
-            if ($counts['ledger'] || $counts['bank']) {
-                throw new RuntimeException('That reconciliation still holds '
-                    . $counts['ledger'] . ' ledger and ' . $counts['bank'] . ' bank transactions. '
-                    . 'Remove those first, or just switch it off instead of deleting it.');
+            // a reconciliation no longer owns transactions - it only pairs two
+            // files - so deleting one leaves the files and their data alone
+            $st = $pdo->prepare("SELECT COUNT(*) FROM rec_runs WHERE rec_id = ? AND status = 'finalised'");
+            $st->execute([$id]);
+            if ((int)$st->fetchColumn()) {
+                throw new RuntimeException('That reconciliation has finalised matching runs against it. '
+                    . 'Switch it off instead of deleting it, so the history is kept.');
             }
             $pdo->prepare("DELETE FROM rec_recs WHERE id = ?")->execute([$id]);
             flash('Reconciliation deleted.');
@@ -99,16 +96,19 @@ if ($editId) {
 }
 $blank = ['id' => 0, 'name' => '', 'left_label' => 'Ledger', 'right_label' => 'Bank',
           'sort_order' => 100, 'notes' => '', 'active' => 1];
-foreach (['l', 'b'] as $sp) for ($i = 1; $i <= 3; $i++) $blank[$sp . '_extra' . $i] = '';
+$blank['left_file_id'] = null;
+$blank['right_file_id'] = null;
 $f = $edit ?: $blank;
 
 // a line of numbers for each one
 $rows = $pdo->query(
     "SELECT r.*,
-       (SELECT COUNT(*) FROM rec_ledger t WHERE t.rec_id = r.id AND t.matched_at IS NULL) l_open,
-       (SELECT COUNT(*) FROM rec_bank   t WHERE t.rec_id = r.id AND t.matched_at IS NULL) b_open,
-       (SELECT COALESCE(SUM(t.value),0) FROM rec_ledger t WHERE t.rec_id = r.id AND t.matched_at IS NULL) l_val,
-       (SELECT COALESCE(SUM(t.value),0) FROM rec_bank   t WHERE t.rec_id = r.id AND t.matched_at IS NULL) b_val,
+       (SELECT COUNT(*) FROM rec_txns t WHERE t.file_id = r.left_file_id  AND t.matched_at IS NULL AND t.split_at IS NULL) l_open,
+       (SELECT COUNT(*) FROM rec_txns t WHERE t.file_id = r.right_file_id AND t.matched_at IS NULL AND t.split_at IS NULL) b_open,
+       (SELECT COALESCE(SUM(t.value),0) FROM rec_txns t WHERE t.file_id = r.left_file_id  AND t.matched_at IS NULL AND t.split_at IS NULL) l_val,
+       (SELECT COALESCE(SUM(t.value),0) FROM rec_txns t WHERE t.file_id = r.right_file_id AND t.matched_at IS NULL AND t.split_at IS NULL) b_val,
+       (SELECT f.name FROM rec_files f WHERE f.id = r.left_file_id)  left_file_name,
+       (SELECT f.name FROM rec_files f WHERE f.id = r.right_file_id) right_file_name,
        (SELECT COUNT(*) FROM rec_runs n WHERE n.rec_id = r.id AND n.status = 'finalised') runs_n
      FROM rec_recs r ORDER BY r.sort_order, r.name")->fetchAll();
 
@@ -134,11 +134,8 @@ else on the site then shows only that one.</p>
       <td><b><?= h($r['name']) ?></b>
         <?php if ($r['notes']): ?><br><span class="muted small"><?= h($r['notes']) ?></span><?php endif; ?></td>
       <td class="small"><?= h($r['left_label']) ?> / <?= h($r['right_label']) ?>
-        <?php if (extras_ready()):
-            $ex = array_filter([$r['l_extra1'] ?? '', $r['l_extra2'] ?? '', $r['l_extra3'] ?? '',
-                                $r['b_extra1'] ?? '', $r['b_extra2'] ?? '', $r['b_extra3'] ?? '']);
-            if ($ex): ?><br><span class="muted">+ <?= count($ex) ?> spare field<?= count($ex) == 1 ? '' : 's' ?></span>
-        <?php endif; endif; ?></td>
+        <br><span class="muted"><?= h($r['left_file_name'] ?? 'no file') ?>
+          &rarr; <?= h($r['right_file_name'] ?? 'no file') ?></span></td>
       <td class="num"><?= (int)$r['l_open'] ?><br><span class="muted small"><?= money($r['l_val']) ?></span></td>
       <td class="num"><?= (int)$r['b_open'] ?><br><span class="muted small"><?= money($r['b_val']) ?></span></td>
       <td class="num <?= abs($diff) < 0.005 ? 'pos' : 'neg' ?>"><?= money($diff) ?></td>
@@ -184,22 +181,23 @@ else on the site then shows only that one.</p>
     For a supplier account, you might use Purchase Ledger and Supplier Statement. The matching works
     the same either way.</p>
 
-  <?php if (extras_ready()): ?>
-    <h3 style="margin-top:1.2rem">Spare fields</h3>
-    <p class="small muted">Each side can carry three extra pieces of information from its file &mdash;
-      a reference, a cost centre, an invoice number &mdash; shown beside each transaction to help you
-      judge a match by eye. Name the ones you want and they appear on the import screen, the
-      transaction lists and the download. Leave a name empty and that field is not used. The rules do
-      not look at these.</p>
-    <div class="sides">
-      <?php foreach ([['l', $f['left_label'] ?: 'Ledger'], ['b', $f['right_label'] ?: 'Bank']] as [$sp, $sideName]): ?>
+  <?php if (files_ready()): ?>
+    <h3 style="margin-top:1.2rem">Which two files does this reconcile?</h3>
+    <p class="small muted">Files are loaded on their own and can be used by more than one
+      reconciliation. Each carries its own spare field names, set on the
+      <a href="files.php">Files</a> screen.</p>
+    <div class="row">
+      <?php foreach ([['left_file_id', $f['left_label'] ?: 'Ledger'],
+                      ['right_file_id', $f['right_label'] ?: 'Bank']] as [$fieldName, $sideName]): ?>
         <div>
-          <span class="muted small">On the <?= h($sideName) ?> side</span>
-          <?php for ($i = 1; $i <= 3; $i++): ?>
-            <input type="text" name="<?= $sp ?>_extra<?= $i ?>" style="margin-top:.35rem"
-                   value="<?= h($f[$sp . '_extra' . $i] ?? '') ?>"
-                   placeholder="Spare field <?= $i ?> - leave empty if not needed">
-          <?php endfor; ?>
+          <label>The <?= h($sideName) ?> side is</label>
+          <select name="<?= $fieldName ?>">
+            <option value="">not chosen yet</option>
+            <?php foreach (all_files() as $ff): ?>
+              <option value="<?= (int)$ff['id'] ?>"<?= (int)($f[$fieldName] ?? 0) === (int)$ff['id'] ? ' selected' : '' ?>>
+                <?= h($ff['name']) ?></option>
+            <?php endforeach; ?>
+          </select>
         </div>
       <?php endforeach; ?>
     </div>
