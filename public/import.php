@@ -92,7 +92,7 @@ try {
     if ($stage === 'repreview') {
         $side  = ($_POST['side'] ?? '') === 'bank' ? 'bank' : 'ledger';
         $token = basename($_POST['token'] ?? '');
-        $name  = $_POST['name'] ?? $token;
+        $name  = ($_POST['name'] ?? '') ?: $token;
         if (!is_file("$storage/$token")) throw new RuntimeException('That upload has expired. Please choose the file again.');
         $rows = read_table("$storage/$token", $name);
         $preview = build_preview($rows, $side, $token, $name,
@@ -103,7 +103,7 @@ try {
     if ($stage === 'confirm') {
         $side  = ($_POST['side'] ?? '') === 'bank' ? 'bank' : 'ledger';
         $token = basename($_POST['token'] ?? '');
-        $name  = $_POST['name'] ?? $token;
+        $name  = ($_POST['name'] ?? '') ?: $token;
         $path  = "$storage/$token";
         if (!is_file($path)) throw new RuntimeException('That upload has expired. Please choose the file again.');
 
