@@ -61,7 +61,11 @@ function side_file($side)
 // A WHERE fragment tying transactions to one side's file. When no file has been
 // chosen for that side there is nothing to show, which is not the same as
 // showing everything - so it says so plainly.
-function file_where($side, $alias = 't')
+//
+// $alias has NO DEFAULT on purpose. It defaulted to 't' once, and a query that
+// did not alias its table quietly asked for t.file_id and fell over. Making the
+// caller say which it is means the question gets answered rather than assumed.
+function file_where($side, $alias)
 {
     $id = side_file_id($side);
     $p  = $alias === '' ? '' : $alias . '.';

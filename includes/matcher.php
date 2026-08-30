@@ -222,8 +222,9 @@ function offsets_by_nearness($tol)
 // Everything not yet finalised as matched.
 function load_open($side)
 {
+    // no alias on the table here, so none in the file condition either
     return db()->query("SELECT id, txn_date, description, value FROM rec_txns
-                        WHERE matched_at IS NULL AND " . file_where($side) . not_split()
+                        WHERE matched_at IS NULL AND " . file_where($side, '') . not_split()
                         . " ORDER BY txn_date, id")->fetchAll();
 }
 
