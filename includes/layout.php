@@ -19,6 +19,7 @@ function render_header($title = '')
     $here = basename($_SERVER['SCRIPT_NAME'] ?? '');
     $nav = [
         'index.php'        => 'Home',
+        'overview.php'     => 'Overview',
         'files.php'        => 'Files',
         'import.php'       => '1. Import',
         'rules.php'        => '2. Rules',

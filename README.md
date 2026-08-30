@@ -39,8 +39,11 @@ ledger, ledger to statement, with the middle files taking part in two links each
 and settled independently in both.
 
 The tool has no notion of a "chain" - it is a set of pairs, and you walk them in
-whatever order suits. If a chain view earns its place later it will be a report
-over the pairs, not a new mechanism.
+whatever order suits. The **Overview** screen reads the sequence off the pairings
+each time rather than storing one: where the file on one reconciliation's right
+is the file on another's left, they are drawn as a sequence, with each link's
+difference alongside. That is what a chain is here - a way of reading a set of
+pairs, not a thing in its own right.
 
 ## More than one reconciliation
 
