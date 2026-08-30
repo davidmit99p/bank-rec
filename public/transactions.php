@@ -200,6 +200,7 @@ function sort_link($label, $side, $key, $curKey, $curDir, $title = '')
     $params = $_GET;
     $params[$side . 's'] = $key;
     $params[$side . 'd'] = ($curKey === $key && $curDir === 'asc') ? 'desc' : 'asc';
+    $params[$side . 'p'] = 1;                 // a new order means starting again
     $arrow = $curKey === $key ? ($curDir === 'asc' ? ' &uarr;' : ' &darr;') : '';
     $style = $curKey === $key ? 'color:var(--accent);font-weight:700' : 'color:inherit';
     return '<a href="?' . h(http_build_query($params)) . '"'
@@ -228,24 +229,54 @@ function value_head($side, $curKey, $curDir)
 // $show is 'open', 'matched' or 'both'. Matched rows come back with the run
 // reference and the id of the match they belong to, so they can be unmatched
 // from here without going anywhere else.
-// Items already sitting in the draft run are not available to tick again.
 $draft = current_draft();
-$claimL = $draft ? array_keys(ids_used_in_run($draft['id'], 'ledger')) : [];
-$claimB = $draft ? array_keys(ids_used_in_run($draft['id'], 'bank'))   : [];
 
 $lsort = isset(sort_columns()[$_GET['ls'] ?? '']) ? $_GET['ls'] : 'date';
 $ldir  = ($_GET['ld'] ?? 'asc') === 'desc' ? 'desc' : 'asc';
 $bsort = isset(sort_columns()[$_GET['bs'] ?? '']) ? $_GET['bs'] : 'date';
 $bdir  = ($_GET['bd'] ?? 'asc') === 'desc' ? 'desc' : 'asc';
 
-$ledger = list_items('ledger', $lq, $from, $to, $claimL, $show, $lsort, $ldir, $sign);
-$bank   = list_items('bank',   $bq, $from, $to, $claimB, $show, $bsort, $bdir, $sign);
-$lTot   = array_sum(array_map(fn($r) => (float)$r['value'], $ledger));
-$bTot   = array_sum(array_map(fn($r) => (float)$r['value'], $bank));
-$lOpen  = array_sum(array_map(fn($r) => $r['matched_at'] === null ? 1 : 0, $ledger));
-$bOpen  = array_sum(array_map(fn($r) => $r['matched_at'] === null ? 1 : 0, $bank));
+// How many rows to draw. Twelve thousand in one page is slow in the browser
+// however quick the database is.
+$sizes   = [100, 250, 500, 1000];
+$perPage = in_array((int)($_GET['per'] ?? 0), $sizes, true) ? (int)$_GET['per'] : 250;
+
+// The counts and totals cover EVERYTHING matching the filters, not the page.
+$lCount = count_items('ledger', $lq, $from, $to, $show, $sign);
+$bCount = count_items('bank',   $bq, $from, $to, $show, $sign);
+$lTot   = (float)$lCount['total'];  $bTot = (float)$bCount['total'];
+$lOpen  = (int)$lCount['open_n'];   $bOpen = (int)$bCount['open_n'];
+
+$lPages = max(1, (int)ceil($lCount['n'] / $perPage));
+$bPages = max(1, (int)ceil($bCount['n'] / $perPage));
+$lPage  = min(max(1, (int)($_GET['lp'] ?? 1)), $lPages);
+$bPage  = min(max(1, (int)($_GET['bp'] ?? 1)), $bPages);
+
+$ledger = list_items('ledger', $lq, $from, $to, $show, $lsort, $ldir, $sign,
+                     $perPage, ($lPage - 1) * $perPage);
+$bank   = list_items('bank',   $bq, $from, $to, $show, $bsort, $bdir, $sign,
+                     $perPage, ($bPage - 1) * $perPage);
+
 $back   = array_filter(['lq' => $lq, 'bq' => $bq, 'from' => $from, 'to' => $to, 'show' => $show,
+                        'per' => $perPage, 'lp' => $lPage, 'bp' => $bPage,
                         'in' => $wantIn ? '1' : '', 'out' => $wantOut ? '1' : '']);
+
+// Page links for one side, keeping every other setting as it is.
+function pager($sideKey, $page, $pages)
+{
+    if ($pages < 2) return '';
+    $link = function ($p, $label, $current = false) use ($sideKey) {
+        $params = array_merge($_GET, [$sideKey => $p]);
+        return '<a class="btn ghost small" href="?' . h(http_build_query($params)) . '"'
+             . ($current ? ' style="background:var(--accent);color:#fff"' : '') . '>' . $label . '</a>';
+    };
+    $out = '<div class="pager">';
+    if ($page > 1) $out .= $link($page - 1, '&larr;');
+    for ($p = max(1, $page - 3); $p <= min($pages, $page + 3); $p++) $out .= $link($p, $p, $p === $page);
+    if ($page < $pages) $out .= $link($page + 1, '&rarr;');
+    $out .= '<span class="muted small">page ' . $page . ' of ' . $pages . '</span></div>';
+    return $out;
+}
 $rules  = (int)$pdo->query("SELECT COUNT(*) FROM rec_rules WHERE active = 1" . rule_and())->fetchColumn();
 
 render_header('Transactions');
@@ -273,7 +304,8 @@ items into view when something needs undoing.</p>
 // inside the form that carries the tick boxes.
 foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $others]): ?>
   <form method="get" id="<?= $id ?>" style="display:none">
-    <?php foreach ($others + ['from' => $from, 'to' => $to, 'show' => $show] as $k => $v): ?>
+    <?php foreach ($others + ['from' => $from, 'to' => $to, 'show' => $show,
+                              'per' => $perPage] as $k => $v): ?>
       <input type="hidden" name="<?= h($k) ?>" value="<?= h($v) ?>">
     <?php endforeach; ?>
     <?php if ($wantIn): ?><input type="hidden" name="in" value="1"><?php endif; ?>
@@ -301,6 +333,12 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
         <input type="checkbox" name="out" value="1" style="width:auto"
           <?= $wantOut ? 'checked' : '' ?> onchange="this.form.submit()"> Money out</label>
     </span></div>
+  <div><label>Rows per page</label>
+    <select name="per" onchange="this.form.submit()">
+      <?php foreach ($sizes as $sz): ?>
+        <option value="<?= $sz ?>"<?= $perPage === $sz ? ' selected' : '' ?>><?= $sz ?></option>
+      <?php endforeach; ?>
+    </select></div>
   <button class="btn ghost" type="submit">Filter</button>
   <a class="btn ghost" href="transactions.php">Clear all</a>
   <?php if ($show !== 'open'): ?>
@@ -333,17 +371,22 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
   <div class="sides">
 <?php
   $panels = [
-    ['ledger', h(side_label('ledger')), $ledger, $lOpen, $lTot, 'L', 'l', $lsort, $ldir, 'searchL', 'lq', $lq],
-    ['bank',   h(side_label('bank')),   $bank,   $bOpen, $bTot, 'B', 'b', $bsort, $bdir, 'searchB', 'bq', $bq],
+    ['ledger', h(side_label('ledger')), $ledger, $lOpen, $lTot, 'L', 'l', $lsort, $ldir, 'searchL', 'lq', $lq,
+     (int)$lCount['n'], $lPage, $lPages, 'lp'],
+    ['bank',   h(side_label('bank')),   $bank,   $bOpen, $bTot, 'B', 'b', $bsort, $bdir, 'searchB', 'bq', $bq,
+     (int)$bCount['n'], $bPage, $bPages, 'bp'],
   ];
-  foreach ($panels as [$side, $title, $rows, $openN, $tot, $tag, $pfx, $sortKey, $dir, $formId, $field, $val]):
+  foreach ($panels as [$side, $title, $rows, $openN, $tot, $tag, $pfx, $sortKey, $dir, $formId, $field, $val,
+                       $totalN, $page, $pages, $pageKey]):
     $tickFirst = ($side === 'bank');   // ledger ticks sit on the inside edge
 ?>
     <div>
       <div class="side-head"><h2><?= $title ?></h2>
-        <span class="muted small"><?= count($rows) ?> shown<?= $sign === 'in' ? ', money in only'
-            : ($sign === 'out' ? ', money out only' : '') ?><?= $show === 'both' ? ', ' . $openN . ' open' : '' ?>,
-          <span class="num <?= $tot < 0 ? 'neg' : '' ?>"><?= money($tot) ?></span></span></div>
+        <span class="muted small"><?= number_format($totalN) ?><?= $sign === 'in' ? ' money in'
+            : ($sign === 'out' ? ' money out' : '') ?><?= $show === 'both' ? ', ' . number_format($openN) . ' open' : '' ?>,
+          totalling <span class="num <?= $tot < 0 ? 'neg' : '' ?>"><?= money($tot) ?></span>
+          <?php if ($pages > 1): ?><br>showing <?= number_format(count($rows)) ?> on page
+            <?= $page ?> of <?= $pages ?><?php endif; ?></span></div>
 
       <div style="display:flex;gap:.4rem;margin-bottom:.4rem">
         <input type="text" name="<?= $field ?>" value="<?= h($val) ?>" form="<?= $formId ?>"
@@ -367,7 +410,7 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
             <?php
               $allBox = '<th style="width:3.2rem" class="center">'
                 . '<input type="checkbox" class="selectall" data-for="' . $tag . '"'
-                . ' title="Tick or untick everything shown on this side">'
+                . ' title="Tick or untick every row on this page">'
                 . '</th>';
               if ($tickFirst) echo $allBox;
             ?>
@@ -414,6 +457,7 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
           </tbody>
         </table>
       </div>
+      <?= pager($pageKey, $page, $pages) ?>
     </div>
 <?php endforeach; ?>
   </div>

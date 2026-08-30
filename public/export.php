@@ -24,14 +24,10 @@ $wantOut = $virgin ? true : isset($_GET['out']);
 if (!$wantIn && !$wantOut) { $wantIn = $wantOut = true; }
 $sign = $wantIn && $wantOut ? 'both' : ($wantIn ? 'in' : 'out');
 
-// The screen hides items already sitting in a run that has not been finalised,
-// so the download has to hide them too - otherwise it would not match what you
-// were looking at when you pressed the button.
-$draft = db()->query("SELECT id FROM rec_runs WHERE status='draft'" . rec_and()
-                     . " ORDER BY id DESC LIMIT 1")->fetch();
-$claimed = $draft ? array_keys(ids_used_in_run($draft['id'], $side)) : [];
-
-$rows = list_items($side, $q, $from, $to, $claimed, $show, $sort, $dir, $sign);
+// No limit: the download is the whole filtered list, not the page that happened
+// to be on screen. Items sitting in an unfinalised run are hidden here just as
+// they are on the screen - that is handled inside item_filters().
+$rows = list_items($side, $q, $from, $to, $show, $sort, $dir, $sign);
 
 // a filename that says what it is, without spaces or punctuation to trip Excel
 $rec  = current_rec();

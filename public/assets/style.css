@@ -100,3 +100,7 @@ textarea{min-height:4rem}
 .split-dlg::backdrop{background:rgba(27,26,23,.45)}
 .split-dlg table{margin-top:.5rem}
 .split-dlg input[type=text]{width:100%}
+
+/* page links under a transaction list */
+.pager{display:flex;gap:.3rem;align-items:center;flex-wrap:wrap;margin-top:.5rem}
+.pager .btn{padding:.2rem .5rem}

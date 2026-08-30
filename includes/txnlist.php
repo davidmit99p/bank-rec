@@ -33,11 +33,13 @@ function order_expression($sortKey, $dir)
     return "t.{$col} {$d}, t.id";
 }
 
-function list_items($side, $q, $from, $to, $skipIds, $show = 'open', $sortKey = 'date', $dir = 'asc',
-                    $sign = 'both')
+// Everything the screen filters on, built once and used by both the count and
+// the listing, so the figures at the top of a panel always describe the list
+// underneath it.
+function item_filters($side, $q, $from, $to, $show, $sign)
 {
     $table = $side === 'ledger' ? 'rec_ledger' : 'rec_bank';
-    $where = [];
+    $where = [rec_where('t')];
     $args  = [];
 
     if ($show === 'open')    $where[] = 't.matched_at IS NULL';
@@ -49,25 +51,59 @@ function list_items($side, $q, $from, $to, $skipIds, $show = 'open', $sortKey = 
     if ($q !== '')    { $where[] = 't.description LIKE ?'; $args[] = '%' . $q . '%'; }
     if ($from !== '') { $where[] = 't.txn_date >= ?';      $args[] = $from; }
     if ($to !== '')   { $where[] = 't.txn_date <= ?';      $args[] = $to; }
-    // items already claimed by the draft run are not available to tick again,
-    // but that only applies to the open ones
-    if ($skipIds && $show !== 'matched') {
-        $where[] = '(t.matched_at IS NOT NULL OR t.id NOT IN ('
-                 . implode(',', array_map('intval', $skipIds)) . '))';
+
+    if (splits_ready()) $where[] = 't.split_at IS NULL';   // the parts stand in for it now
+
+    // Items already sitting in a run that has not been finalised are not
+    // available to tick again. Asked as a question about the run rather than by
+    // listing every claimed id, which would be thousands of them at volume.
+    if ($show !== 'matched') {
+        $where[] = "(t.matched_at IS NOT NULL OR NOT EXISTS (
+                        SELECT 1 FROM rec_match_lines ml
+                        JOIN rec_match_groups mg ON mg.id = ml.group_id
+                        JOIN rec_runs mr ON mr.id = mg.run_id AND mr.status = 'draft'"
+                        . rec_and('mr') . "
+                        WHERE ml.side = '{$side}' AND ml.txn_id = t.id))";
     }
 
-    $where[] = rec_where('t');
-    if (splits_ready()) $where[] = 't.split_at IS NULL';   // the parts stand in for it now
+    return [$table, ' WHERE ' . implode(' AND ', $where), $args];
+}
+
+// How many, and what they come to - across everything matching, not just the
+// page on screen. The totals are what a reconciliation turns on, so they must
+// never describe only part of the list.
+function count_items($side, $q, $from, $to, $show = 'open', $sign = 'both')
+{
+    [$table, $where, $args] = item_filters($side, $q, $from, $to, $show, $sign);
+    $st = db()->prepare("SELECT COUNT(*) n,
+                                COALESCE(SUM(t.value), 0) total,
+                                COALESCE(SUM(t.matched_at IS NULL), 0) open_n
+                         FROM {$table} t" . $where);
+    $st->execute($args);
+    return $st->fetch();
+}
+
+// $limit of null means every row - which is what the download wants.
+function list_items($side, $q, $from, $to, $show = 'open', $sortKey = 'date', $dir = 'asc',
+                    $sign = 'both', $limit = null, $offset = 0)
+{
+    [$table, $where, $args] = item_filters($side, $q, $from, $to, $show, $sign);
+
     $parentVal = splits_ready()
         ? ", (SELECT p.value FROM {$table} p WHERE p.id = t.parent_id) AS parent_value"
         : ", NULL AS parent_value";
+
     $sql = "SELECT t.*, r.run_ref{$parentVal},
                    (SELECT l.group_id FROM rec_match_lines l
                      WHERE l.side = '{$side}' AND l.txn_id = t.id LIMIT 1) AS group_id
             FROM {$table} t
             LEFT JOIN rec_runs r ON r.id = t.run_id"
-         . ($where ? ' WHERE ' . implode(' AND ', $where) : '')
+         . $where
          . " ORDER BY " . order_expression($sortKey, $dir);
+
+    if ($limit !== null) {
+        $sql .= " LIMIT " . max(1, (int)$limit) . " OFFSET " . max(0, (int)$offset);
+    }
     $st = db()->prepare($sql);
     $st->execute($args);
     return $st->fetchAll();
