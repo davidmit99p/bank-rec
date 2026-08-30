@@ -1,6 +1,9 @@
 <?php
 // Loads config and gives us a single database connection to reuse.
 
+// Turn a blank 500 into something that says what happened.
+require_once __DIR__ . '/errors.php';
+
 // Stand-ins for PHP extensions the live server does not have.
 require_once __DIR__ . '/compat.php';
 

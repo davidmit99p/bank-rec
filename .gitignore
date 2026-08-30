@@ -3,3 +3,4 @@ bank-rec-config.php
 storage/uploads/*
 !storage/uploads/.gitkeep
 !storage/uploads/.htaccess
+storage/errors.log
