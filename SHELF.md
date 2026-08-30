@@ -59,7 +59,33 @@ Offered 2026-08-29; David said not for now.
 
 ## Bigger direction
 
-### Named users and multi-tenant
+### Named users, then tenants
+
+Decided 30 August 2026: **one database, tagged by client** - not a database per
+client. It may be sold, and even if it only ever serves existing clients the
+confidentiality problem is identical.
+
+**Users come first.** There is no notion of who is using the tool - one shared
+password covers the whole site. Segregation means nothing until there is
+somebody to segregate.
+
+**Then an owner on files, reconciliations and rules**, and every query scoped by
+it. Same shape as the reconciliation and file changes.
+
+**The safeguard is part of the job, not an extra.** Separation then rests on
+every query being right, and there are around forty. Miss one and a client sees
+another's figures with no error and no crash - just wrong data on screen, which
+is the worst failure mode this application could have. So:
+
+- scoping must be the DEFAULT, through a helper that has to be opted out of
+  rather than remembered;
+- and a test must walk every query and fail if one is unscoped, in the way
+  `tools/check_includes.php` does for a different problem.
+
+Retrofitting that test afterwards is much harder than writing it alongside. If
+this gets built without it, it is not finished.
+
+### The original note on this, for reference
 
 David's own sequencing: reconciliations first (done), then named users, then
 several companies.
