@@ -51,7 +51,8 @@ function grouping_modes() {
         'many_right'    => 'One ledger line splits into several bank lines',
         'contra_left'   => 'Two ledger lines that cancel each other out (contra)',
         'contra_right'  => 'Two bank lines that cancel each other out (contra)',
-        'period_month'  => 'Everything in the same month, both sides (may not balance)',
+        'period_day'    => 'Everything on the same day, both sides',
+        'period_month'  => 'Everything in the same month, both sides',
     ];
 }
 
@@ -365,25 +366,38 @@ function find_contra_pairs(array $pool, array &$used, $tol, $linkDesc)
     return $pairs;
 }
 
-// A month at a time, both sides together, whether or not it balances.
+// A period at a time, both sides together, whether or not it balances.
 //
-// This is the one shape that can suggest something out of balance. It is for
-// files that are summarised differently from each other, where you know a
-// period belongs together but not which line answers which. The suggestion is a
-// starting point you correct by eye - nothing is committed until it balances.
+// These are the shapes that can suggest something out of balance. They are for
+// files summarised differently from each other, where you know a period belongs
+// together but not which line answers which.
 //
-// Capped, because a month of twelve thousand items is not something anyone can
-// review. A month bigger than the cap is left alone rather than half offered.
-const PERIOD_GROUP_CAP = 250;
+// A day is the common case: a card settlement file at booking level against an
+// acquirer statement carrying one amount per day. Those should balance exactly,
+// so the suggestion goes straight through. A month is the looser version for
+// when they will not, and you trim it by eye.
+//
+// Capped only to stop something absurd. A period bigger than this is left alone
+// rather than half offered.
+const PERIOD_GROUP_CAP = 2000;
 
-function group_by_month(array $rows, array $used)
+// $len is how much of the date makes the period: 10 for a day, 7 for a month.
+function group_by_period(array $rows, array $used, $len)
 {
     $out = [];
     foreach ($rows as $r) {
         if (isset($used[$r['id']])) continue;
-        $out[substr((string)$r['txn_date'], 0, 7)][] = $r;
+        $out[substr((string)$r['txn_date'], 0, $len)][] = $r;
     }
     return $out;
+}
+
+// How a period grouping labels itself, or null if the rule is not one.
+function period_len($grouping)
+{
+    if ($grouping === 'period_day')   return 10;
+    if ($grouping === 'period_month') return 7;
+    return null;
 }
 
 // -----------------------------------------------------------------------------
@@ -424,9 +438,10 @@ function run_rules($runId)
 
         $sign = $rule['sign_mode'] === 'opposite' ? -1 : 1;
 
-        if ($rule['grouping'] === 'period_month') {
-            $byL = group_by_month($L, $usedL);
-            $byB = group_by_month($B, $usedB);
+        if (period_len($rule['grouping'])) {
+            $len = period_len($rule['grouping']);
+            $byL = group_by_period($L, $usedL, $len);
+            $byB = group_by_period($B, $usedB, $len);
             $months = array_keys($byL + $byB);
             sort($months);
             foreach ($months as $ym) {
@@ -438,8 +453,10 @@ function run_rules($runId)
                 $lTot = array_sum(array_map(fn($r) => (float)$r['value'], $ls));
                 $bTot = array_sum(array_map(fn($r) => (float)$r['value'], $bs));
                 $groupNo++;
+                $when = $len === 10 ? date('j F Y', strtotime($ym))
+                                    : date('F Y', strtotime($ym . '-01'));
                 $insG->execute([$runId, $groupNo, (string)$rule['id'],
-                                $rule['name'] . ' - ' . date('F Y', strtotime($ym . '-01')),
+                                mb_substr($rule['name'] . ' - ' . $when, 0, 150),
                                 $lTot, $bTot, $rule['sign_mode']]);
                 $gid = $pdo->lastInsertId();
                 foreach ($ls as $r) { $insL->execute([$gid, 'ledger', $r['id'], $r['value']]); $usedL[$r['id']] = 1; }

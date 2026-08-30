@@ -106,7 +106,7 @@ the two sides may be paired:
 
 | Setting | What it does |
 | --- | --- |
-| Shape of the match | one-to-one, several ledger lines to one bank line, or one ledger line to several bank lines |
+| Shape of the match | one-to-one, several to one, one to several, a contra, or everything in the same day or month |
 | Most lines in a group | the largest group the engine will build (2 to 8) |
 | Dates may differ by | how many days apart the two sides may be |
 | Signs | whether the bank shows the same sign as the ledger, or the opposite |

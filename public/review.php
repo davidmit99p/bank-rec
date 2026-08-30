@@ -200,11 +200,25 @@ render_header('Review ' . $run['run_ref']);
     <div class="sides">
       <?php foreach (['ledger' => side_label('ledger'), 'bank' => side_label('bank')] as $side => $label):
           $sideLines = array_values(array_filter($lines, fn($l) => $l['side'] === $side)); ?>
+      <?php
+        // A day of four hundred bookings, or a month of several thousand, is not
+        // something to draw in full unless it is actually being looked at.
+        $big = count($sideLines) > 25;
+        $sideTotal = array_sum(array_map(fn($l) => (float)$l['value'], $sideLines));
+      ?>
       <div>
         <span class="muted small"><?= $label ?></span>
         <?php if (!$sideLines): ?>
           <p class="small muted" style="margin:.2rem 0">Nothing on this side &mdash; the entries opposite
             cancel each other out.</p>
+        <?php endif; ?>
+        <?php if ($big): ?>
+        <details>
+          <summary style="cursor:pointer;padding:.3rem 0">
+            <b><?= number_format(count($sideLines)) ?></b> lines,
+            <span class="num <?= $sideTotal < 0 ? 'neg' : '' ?>"><?= money($sideTotal) ?></span>
+            <span class="muted small">&mdash; click to see them</span>
+          </summary>
         <?php endif; ?>
         <table>
           <?php foreach ($sideLines as $l): ?>
@@ -213,6 +227,7 @@ render_header('Review ' . $run['run_ref']);
               <td class="num <?= $l['value'] < 0 ? 'neg' : '' ?>"><?= money($l['value']) ?></td></tr>
           <?php endforeach; ?>
         </table>
+        <?php if ($big): ?></details><?php endif; ?>
       </div>
       <?php endforeach; ?>
     </div>
