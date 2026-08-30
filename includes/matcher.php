@@ -53,6 +53,7 @@ function grouping_modes() {
         'contra_right'  => 'Two bank lines that cancel each other out (contra)',
         'period_day'    => 'Everything on the same day, both sides',
         'period_month'  => 'Everything in the same month, both sides',
+        'key'           => 'Everything sharing the same key, both sides',
     ];
 }
 
@@ -224,8 +225,10 @@ function offsets_by_nearness($tol)
 // Everything not yet finalised as matched.
 function load_open($side)
 {
+    // The spare fields come too, because a rule can group on one of them.
     // no alias on the table here, so none in the conditions either
-    return db()->query("SELECT id, txn_date, description, value FROM rec_txns
+    return db()->query("SELECT id, txn_date, description, value, extra1, extra2, extra3
+                        FROM rec_txns
                         WHERE " . open_where('') . " AND " . file_where($side, '') . not_split()
                         . " ORDER BY txn_date, id")->fetchAll();
 }
@@ -392,6 +395,41 @@ function group_by_period(array $rows, array $used, $len)
     return $out;
 }
 
+// Has migration_009 been run? Until it has, the "same key" shape is not offered.
+function key_rules_ready()
+{
+    static $ok = null;
+    if ($ok === null) {
+        try { db()->query("SELECT key_left FROM rec_rules LIMIT 1"); $ok = true; }
+        catch (Throwable $e) { $ok = false; }
+    }
+    return $ok;
+}
+
+// Which fields a rule may group on. The spare fields are named per file, so the
+// labels shown to the user come from the reconciliation being worked on.
+function key_fields()
+{
+    return ['extra1' => 'Spare field 1', 'extra2' => 'Spare field 2',
+            'extra3' => 'Spare field 3', 'description' => 'Description'];
+}
+
+// Bucket rows by the value of one field. Trimmed and upper-cased, because a
+// reference typed one way in one system and another way in the next is still
+// the same reference. Anything with no value in that field is left out - a
+// blank key is not a key.
+function group_by_key(array $rows, array $used, $field)
+{
+    $out = [];
+    foreach ($rows as $r) {
+        if (isset($used[$r['id']])) continue;
+        $k = mb_strtoupper(trim((string)($r[$field] ?? '')));
+        if ($k === '') continue;
+        $out[$k][] = $r;
+    }
+    return $out;
+}
+
 // How a period grouping labels itself, or null if the rule is not one.
 function period_len($grouping)
 {
@@ -438,7 +476,33 @@ function run_rules($runId)
 
         $sign = $rule['sign_mode'] === 'opposite' ? -1 : 1;
 
-        if (period_len($rule['grouping'])) {
+        if ($rule['grouping'] === 'key') {
+            // everything sharing a reference on both sides, whether or not the
+            // two sides come to the same
+            $kl = $rule['key_left']  ?? 'extra1';
+            $kr = $rule['key_right'] ?? 'extra1';
+            $byL = group_by_key($L, $usedL, $kl ?: 'extra1');
+            $byB = group_by_key($B, $usedB, $kr ?: 'extra1');
+            $keys = array_keys($byL);
+            sort($keys);
+            foreach ($keys as $k) {
+                if (empty($byB[$k])) continue;              // needs both sides
+                $ls = $byL[$k];
+                $bs = $byB[$k];
+                if (count($ls) > PERIOD_GROUP_CAP || count($bs) > PERIOD_GROUP_CAP) continue;
+
+                $lTot = array_sum(array_map(fn($r) => (float)$r['value'], $ls));
+                $bTot = array_sum(array_map(fn($r) => (float)$r['value'], $bs));
+                $groupNo++;
+                $insG->execute([$runId, $groupNo, (string)$rule['id'],
+                                mb_substr($rule['name'] . ' - ' . $k, 0, 150),
+                                $lTot, $bTot, $rule['sign_mode']]);
+                $gid = $pdo->lastInsertId();
+                foreach ($ls as $r) { $insL->execute([$gid, 'ledger', $r['id'], $r['value']]); $usedL[$r['id']] = 1; }
+                foreach ($bs as $r) { $insL->execute([$gid, 'bank',   $r['id'], $r['value']]); $usedB[$r['id']] = 1; }
+                $made++;
+            }
+        } elseif (period_len($rule['grouping'])) {
             $len = period_len($rule['grouping']);
             $byL = group_by_period($L, $usedL, $len);
             $byB = group_by_period($B, $usedB, $len);

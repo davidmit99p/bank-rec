@@ -18,7 +18,7 @@ if ($id) {
 $blank = [
     'name' => '', 'active' => 1, 'sort_order' => 100, 'notes' => '',
     'date_tol' => 3, 'sign_mode' => 'same', 'grouping' => 'one', 'max_group' => 4, 'link_desc' => 0,
-    'rec_id' => null,
+    'rec_id' => null, 'key_left' => 'extra1', 'key_right' => 'extra1',
 ];
 foreach (['l_', 'b_'] as $p) {
     $blank += [
@@ -32,6 +32,7 @@ $r = $rule ?: $blank;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $cols = ['name','sort_order','notes','date_tol','sign_mode','grouping','max_group'];
     if (recs_ready()) $cols[] = 'rec_id';
+    if (key_rules_ready()) { $cols[] = 'key_left'; $cols[] = 'key_right'; }
     foreach (['l_','b_'] as $p) {
         foreach (['desc_op','desc_val','value_op','value_val','value_val2','date_op','date_val','date_val2'] as $c) {
             $cols[] = $p . $c;
@@ -170,6 +171,28 @@ form to say which <b>bank</b> lines they should be paired with. Leave a box on &
           <option value="opposite"<?= $r['sign_mode'] === 'opposite' ? ' selected' : '' ?>>Bank is the opposite sign</option>
         </select></div>
     </div>
+    <?php if (key_rules_ready()): ?>
+      <h3 style="margin-top:1.2rem">If the shape is &ldquo;everything sharing the same key&rdquo;</h3>
+      <p class="small muted">Which field holds the key &mdash; a booking reference, say. Two settings,
+        because the same reference can be a different spare field on each side: each file names its
+        own. Rows with nothing in that field are left out, and a key found on only one side is not
+        suggested. Ignored by every other shape.</p>
+      <div class="row">
+        <?php foreach ([['key_left', 'ledger'], ['key_right', 'bank']] as [$field, $sd]):
+            $named = extra_labels($sd); ?>
+          <div>
+            <label>The key on the <?= h(side_label($sd)) ?> side is</label>
+            <select name="<?= $field ?>">
+              <?php foreach (key_fields() as $k => $generic): ?>
+                <option value="<?= $k ?>"<?= ($r[$field] ?? '') === $k ? ' selected' : '' ?>>
+                  <?= h($named[$k] ?? $generic) ?><?= isset($named[$k]) ? '' : ' (not named)' ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+        <?php endforeach; ?>
+      </div>
+    <?php endif; ?>
+
     <label style="margin-top:.8rem"><input type="checkbox" name="link_desc" value="1" style="width:auto"
       <?= $r['link_desc'] ? 'checked' : '' ?>> Only pair items whose descriptions share a word
       <span class="muted small">&mdash; useful for a general catch-all rule, e.g. ledger &ldquo;VISPA LTD&rdquo;

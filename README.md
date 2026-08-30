@@ -106,7 +106,7 @@ the two sides may be paired:
 
 | Setting | What it does |
 | --- | --- |
-| Shape of the match | one-to-one, several to one, one to several, a contra, or everything in the same day or month |
+| Shape of the match | one-to-one, several to one, one to several, a contra, everything in the same day or month, or everything sharing the same key |
 | Most lines in a group | the largest group the engine will build (2 to 8) |
 | Dates may differ by | how many days apart the two sides may be |
 | Signs | whether the bank shows the same sign as the ledger, or the opposite |
@@ -157,6 +157,14 @@ still open in the next reconciliation, its file takes part in nothing further,
 or the grain has collapsed and the thread is now about a group rather than that
 one transaction. There is a Trace link beside every matched item on the
 transactions screen.
+
+**Matching on a key rather than an amount.** Where two files both hold several
+lines for the same booking, and only the totals per booking agree, the "same
+key" shape groups both sides by a reference and compares the totals. The key can
+be a different spare field on each side, since each file names its own. A key
+found on only one side is not suggested, and rows with nothing in that field are
+left out. If the two sides agree the group balances and commits; if they do not,
+it comes through as an unbalanced suggestion showing how far out that booking is.
 
 **Monthly summary.** The Summary screen totals each side by month with the
 difference between them, and carries that difference forward, so you can see
