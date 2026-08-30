@@ -59,31 +59,41 @@ Offered 2026-08-29; David said not for now.
 
 ## Bigger direction
 
-### Named users, then tenants
+### Named users, then a database per client
 
-Decided 30 August 2026: **one database, tagged by client** - not a database per
-client. It may be sold, and even if it only ever serves existing clients the
-confidentiality problem is identical.
+Decided 30 August 2026, after weighing both ways: **one installation, one
+codebase, a database per client, chosen at login.** Not a shared database with
+client tags.
 
-**Users come first.** There is no notion of who is using the tool - one shared
-password covers the whole site. Segregation means nothing until there is
-somebody to segregate.
+Mainly for David's own clients, and if sold it will be to dozens rather than
+hundreds - which is the scale where a database each is comfortable. He owns the
+hosting company, so there is no limit on how many databases he can have.
 
-**Then an owner on files, reconciliations and rules**, and every query scoped by
-it. Same shape as the reconciliation and file changes.
+**Why not the shared, tagged approach.** With separate databases one client's
+data cannot appear on another's screen, because it is not reachable - no query
+could cross, right or wrong. With one tagged database, isolation is a promise
+made by every WHERE clause in the application, and holds only while all of them
+are correct. A miss shows as one client seeing another's figures, with no error
+and no crash. Those are different kinds of safe, and for other people's bank
+records the structural one is worth the extra plumbing.
 
-**The safeguard is part of the job, not an extra.** Separation then rests on
-every query being right, and there are around forty. Miss one and a client sees
-another's figures with no error and no crash - just wrong data on screen, which
-is the worst failure mode this application could have. So:
+Tagging only wins at hundreds of clients, where a database each stops being
+manageable. That is not what this is.
 
-- scoping must be the DEFAULT, through a helper that has to be opted out of
-  rather than remembered;
-- and a test must walk every query and fail if one is unscoped, in the way
-  `tools/check_includes.php` does for a different problem.
+**What it involves:**
 
-Retrofitting that test afterwards is much harder than writing it alongside. If
-this gets built without it, it is not finished.
+1. **Users and login first.** There is no notion of who is using the tool - one
+   shared password covers the whole site. Nothing else can start until there is.
+2. **A small central database** holding users, clients, and which database each
+   client uses.
+3. **Connection chosen after sign-in.** The app connects to that client's
+   database and nothing else. `includes/db.php` already takes the database name
+   from config; this makes it a decision rather than a constant.
+4. **A migration runner.** Schema changes have to reach every client database.
+   With the numbered migration files already in `sql/` this is a script, but it
+   is a step that cannot be skipped, and it should record what has run where.
+
+The existing database becomes the first client.
 
 ### The original note on this, for reference
 
