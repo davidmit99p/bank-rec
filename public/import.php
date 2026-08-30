@@ -278,6 +278,13 @@ warning if the transactions appear to be in already.</p>
         <?php endforeach; ?>
       </div>
 
+      <?php if (extras_ready() && !$preview['extras']): ?>
+        <p class="small muted" style="margin-top:.75rem">Only the date, description and value are
+          brought in. To carry more from this file &mdash; a reference, a type, a cost centre &mdash;
+          give the <?= h(side_label($preview['side'])) ?> side some
+          <a href="recs.php?edit=<?= (int)rec_id() ?>">spare field names</a> first, then import again.</p>
+      <?php endif; ?>
+
       <?php if ($preview['extras']): ?>
       <div class="row">
         <?php foreach ($preview['extras'] as $key => $label): ?>
@@ -341,6 +348,8 @@ warning if the transactions appear to be in already.</p>
 <?php endforeach; ?>
 </div>
 <h2>Files already loaded</h2>
+<p class="muted small">Removing an import and loading the file again is also how you pick up columns
+that were not being captured at the time &mdash; spare fields added after the event, for instance.</p>
 <?php if (!imports_ready()): ?>
   <div class="panel" style="background:#fdf6e6;border-color:#e8d9a8">
     <p style="margin:0"><b>One database change is needed before this works.</b>
