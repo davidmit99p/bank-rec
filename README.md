@@ -202,6 +202,7 @@ public/                      the screens - this is the document root
 sql/schema.sql               run once to create the tables
 sql/starter_rules.sql        optional set of rules to begin with
 tools/dry_run.php            try rules against two files, no database needed
+tools/check_includes.php     does every page load the files it needs?
 ```
 
 ## Tables
