@@ -514,6 +514,8 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
                   <span class="tag <?= is_numeric($t['matched_rule']) ? '' : 'manual' ?>"><?php
                     echo is_numeric($t['matched_rule']) ? 'rule ' . h($t['matched_rule']) : h($t['matched_rule']); ?></span>
                   <span class="tag"><?= h($t['run_ref']) ?></span>
+                  <a class="tag" href="trace.php?txn=<?= (int)$t['id'] ?>"
+                     style="text-decoration:none">trace</a>
                 <?php endif; ?></td>
               <?php foreach (array_keys(extra_labels($side)) as $key): ?>
                 <td class="small desc" title="<?= h((string)($t[$key] ?? '')) ?>"><?= h((string)($t[$key] ?? '')) ?></td>

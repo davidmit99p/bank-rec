@@ -150,6 +150,14 @@ cost centre, an invoice number. Name them on the Reconciliations screen and they
 appear on the import screen to be mapped, as columns in the transaction lists,
 and in the download. They are there to be looked at; the rules do not use them.
 
+**Tracing one transaction.** The Trace screen follows a single line through the
+sequence: what it was matched to, in which reconciliation, and what that in turn
+was matched to. It stops for one of three reasons and says which - the line is
+still open in the next reconciliation, its file takes part in nothing further,
+or the grain has collapsed and the thread is now about a group rather than that
+one transaction. There is a Trace link beside every matched item on the
+transactions screen.
+
 **Monthly summary.** The Summary screen totals each side by month with the
 difference between them, and carries that difference forward, so you can see
 which period a gap comes from instead of hunting through a long list. Months

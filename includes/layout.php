@@ -26,6 +26,7 @@ function render_header($title = '')
         'transactions.php' => '3. Transactions',
         'summary.php'      => 'Summary',
         'matches.php'      => 'Matches',
+        'trace.php'        => 'Trace',
         'runs.php'         => 'Runs',
         'recs.php'         => 'Reconciliations',
         'shelf.php'        => 'Shelf',
