@@ -139,9 +139,80 @@ function descs_agree($a, $b)
     return (bool)array_intersect($wa, $wb);
 }
 
+// strtotime is slow and gets called a great many times, but there are only ever
+// a few hundred distinct dates in a file, so remember them.
+function date_ts($d)
+{
+    static $memo = [];
+    $k = substr((string)$d, 0, 10);
+    if (!isset($memo[$k])) $memo[$k] = strtotime($k);
+    return $memo[$k];
+}
+
 function days_apart($d1, $d2)
 {
-    return (int)round(abs(strtotime(substr($d1, 0, 10)) - strtotime(substr($d2, 0, 10))) / 86400);
+    return (int)round(abs(date_ts($d1) - date_ts($d2)) / 86400);
+}
+
+// -----------------------------------------------------------------------------
+// Indexes.
+//
+// The engine used to compare every item on one side against every item on the
+// other. That is fine for a few hundred rows and hopeless for twelve thousand -
+// the work grows with the square of the count.
+//
+// Nearly every rule requires the two amounts to be equal, so the amount is the
+// natural way in. Index one side by amount and then by date, and a rule can go
+// straight to the handful of candidates that could possibly match instead of
+// walking the whole list. The second level matters because a file can hold
+// thousands of transactions for the same amount - a monthly subscription, say -
+// and indexing by amount alone would leave us scanning all of them.
+// -----------------------------------------------------------------------------
+
+function value_key($v)
+{
+    return number_format((float)$v, 2, '.', '');
+}
+
+// [amount][date] => rows
+function index_rows(array $rows)
+{
+    $ix = [];
+    foreach ($rows as $r) {
+        $ix[value_key($r['value'])][substr((string)$r['txn_date'], 0, 10)][] = $r;
+    }
+    return $ix;
+}
+
+// [date] => rows, for the grouped rules where the amount is not known up front
+function index_by_date(array $rows)
+{
+    $ix = [];
+    foreach ($rows as $r) $ix[substr((string)$r['txn_date'], 0, 10)][] = $r;
+    return $ix;
+}
+
+// Rows within $tol days of $anchor, in date order.
+function rows_near_date(array $dateIndex, $anchor, $tol)
+{
+    $out  = [];
+    $base = date_ts($anchor);
+    for ($d = -$tol; $d <= $tol; $d++) {
+        $day = date('Y-m-d', $base + $d * 86400);
+        if (empty($dateIndex[$day])) continue;
+        foreach ($dateIndex[$day] as $r) $out[] = $r;
+    }
+    return $out;
+}
+
+// Day offsets ordered by how close they are: 0, -1, +1, -2, +2 ... so the first
+// candidate found is the nearest in date and the search can stop there. The
+// earlier date wins a tie, which is what the old every-row scan did too.
+function offsets_by_nearness($tol)
+{
+    $o = [0];
+    for ($i = 1; $i <= $tol; $i++) { $o[] = -$i; $o[] = $i; }
+    return $o;
 }
 
 // --- loading the open items --------------------------------------------------
@@ -168,21 +239,25 @@ function ids_used_in_run($runId, $side)
 // --- the pairing itself ------------------------------------------------------
 
 // Find the one bank row that settles this ledger row, or null.
-function find_single(array $lrow, array $bankRows, array $usedB, array $rule)
+// $index comes from index_rows() on the bank side.
+function find_single(array $lrow, array $index, array $usedB, array $rule)
 {
     $target = $rule['sign_mode'] === 'opposite' ? -(float)$lrow['value'] : (float)$lrow['value'];
-    $tol    = (int)$rule['date_tol'];
-    $best   = null;
-    $bestGap = PHP_INT_MAX;
-    foreach ($bankRows as $b) {
-        if (isset($usedB[$b['id']])) continue;
-        if (abs((float)$b['value'] - $target) > 0.004) continue;
-        $gap = days_apart($lrow['txn_date'], $b['txn_date']);
-        if ($gap > $tol) continue;
-        if ($rule['link_desc'] && !descs_agree($lrow['description'], $b['description'])) continue;
-        if ($gap < $bestGap) { $best = $b; $bestGap = $gap; }
+    $key    = value_key($target);
+    if (empty($index[$key])) return null;          // nothing that amount, done
+
+    $tol  = (int)$rule['date_tol'];
+    $base = date_ts($lrow['txn_date']);
+    foreach (offsets_by_nearness($tol) as $off) {
+        $day = date('Y-m-d', $base + $off * 86400);
+        if (empty($index[$key][$day])) continue;
+        foreach ($index[$key][$day] as $b) {
+            if (isset($usedB[$b['id']])) continue;
+            if ($rule['link_desc'] && !descs_agree($lrow['description'], $b['description'])) continue;
+            return $b;      // nearest date first, so the first one found is the best one
+        }
     }
-    return $best;
+    return null;
 }
 
 // Does any part of this set cancel itself out? A group containing, say,
@@ -205,13 +280,15 @@ function has_self_cancelling_part(array $rows)
 
 // Find a small set of rows from $pool that adds up to $target, near $anchorDate.
 // Returns the rows, or null. Smallest set wins; ties broken by tightest dates.
-function find_combination(array $pool, array $used, $target, $anchorDate, $tol,
+// $near is already narrowed to the date window by rows_near_date(), in date
+// order, so this only has to weed out what is taken and what does not match on
+// wording.
+function find_combination(array $near, array $used, $target, $anchorDate,
                           $maxSize, $anchorDesc, $linkDesc)
 {
     $cands = [];
-    foreach ($pool as $r) {
+    foreach ($near as $r) {
         if (isset($used[$r['id']])) continue;
-        if (days_apart($r['txn_date'], $anchorDate) > $tol) continue;
         if ($linkDesc && !descs_agree($anchorDesc, $r['description'])) continue;
         $cands[] = $r;
     }
@@ -340,10 +417,12 @@ function run_rules($runId)
             }
         } elseif ($rule['grouping'] === 'many_left') {
             // several ledger lines add up to one bank line
+            $byDate = index_by_date($L);
             foreach ($B as $b) {
                 if (isset($usedB[$b['id']])) continue;
                 $target = $sign * (float)$b['value'];
-                $set = find_combination($L, $usedL, $target, $b['txn_date'], (int)$rule['date_tol'],
+                $near = rows_near_date($byDate, $b['txn_date'], (int)$rule['date_tol']);
+                $set = find_combination($near, $usedL, $target, $b['txn_date'],
                                         (int)$rule['max_group'], $b['description'], (int)$rule['link_desc']);
                 if (!$set) continue;
                 $groupNo++;
@@ -358,10 +437,12 @@ function run_rules($runId)
             }
         } elseif ($rule['grouping'] === 'many_right') {
             // one ledger line splits into several bank lines
+            $byDate = index_by_date($B);
             foreach ($L as $l) {
                 if (isset($usedL[$l['id']])) continue;
                 $target = $sign * (float)$l['value'];
-                $set = find_combination($B, $usedB, $target, $l['txn_date'], (int)$rule['date_tol'],
+                $near = rows_near_date($byDate, $l['txn_date'], (int)$rule['date_tol']);
+                $set = find_combination($near, $usedB, $target, $l['txn_date'],
                                         (int)$rule['max_group'], $l['description'], (int)$rule['link_desc']);
                 if (!$set) continue;
                 $groupNo++;
@@ -376,9 +457,10 @@ function run_rules($runId)
             }
         } else {
             // one to one - the common case
+            $bankIndex = index_rows($B);
             foreach ($L as $l) {
                 if (isset($usedL[$l['id']])) continue;
-                $b = find_single($l, $B, $usedB, $rule);
+                $b = find_single($l, $bankIndex, $usedB, $rule);
                 if (!$b) continue;
                 $groupNo++;
                 $insG->execute([$runId, $groupNo, (string)$rule['id'], $rule['name'],

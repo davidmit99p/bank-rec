@@ -99,8 +99,9 @@ foreach ($RULES as $rule) {
     } elseif ($rule['grouping'] === 'many_left') {
         foreach ($B as $b) {
             if (isset($usedB[$b['id']])) continue;
-            $set = find_combination($L, $usedL, $sign * (float)$b['value'], $b['txn_date'],
-                    (int)$rule['date_tol'], (int)$rule['max_group'], $b['description'], (int)$rule['link_desc']);
+            $near = rows_near_date(index_by_date($L), $b['txn_date'], (int)$rule['date_tol']);
+            $set = find_combination($near, $usedL, $sign * (float)$b['value'], $b['txn_date'],
+                    (int)$rule['max_group'], $b['description'], (int)$rule['link_desc']);
             if (!$set) continue;
             $groupNo++;
             foreach ($set as $r) $usedL[$r['id']] = 1;
@@ -109,9 +110,10 @@ foreach ($RULES as $rule) {
             $made++;
         }
     } else {
+        $bankIndex = index_rows($B);
         foreach ($L as $l) {
             if (isset($usedL[$l['id']])) continue;
-            $b = find_single($l, $B, $usedB, $rule);
+            $b = find_single($l, $bankIndex, $usedB, $rule);
             if (!$b) continue;
             $groupNo++;
             $usedL[$l['id']] = 1;

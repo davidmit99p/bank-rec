@@ -77,10 +77,14 @@ on the tables, scoped queries, a picker. Additive rather than a rewrite.
 
 ## Known limits, deliberately left
 
-- **Speed.** Matching is roughly quadratic. Measured on this PHP version: one
-  rule over 1,000 open items a side takes 0.07 seconds, 5,000 takes 1.8, and
-  10,000 takes 11. So the ceiling is around 10,000 open items a side. Matched
-  items drop off the list, so importing a period at a time keeps it far away.
+- **Speed.** No longer a worry for the matching itself. The engine indexes one
+  side by amount and then by date rather than comparing everything to
+  everything, so 12,000 open items a side takes about 0.15 seconds for one rule
+  instead of the 11 seconds it used to. That holds even when thousands of
+  transactions share the same amount, which is the hard case. What has not been
+  addressed is the transactions SCREEN, which still draws every row - twelve
+  thousand rows in one page will be slow in the browser however quick the
+  database is.
 - **Contra rules pair only.** "Equal and opposite" means two entries. Hunting
   for larger sets that happen to reach zero is how you end up matching things
   that have nothing to do with each other - which it did, before that was
