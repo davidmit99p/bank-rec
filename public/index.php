@@ -60,13 +60,23 @@ render_header();
 <div class="panel">
   <h2 style="margin-top:0">How it works</h2>
   <ol class="muted">
-    <li><a href="import.php">Import</a> your ledger file and your bank file.</li>
-    <li>Build <a href="rules.php">rules</a> - ledger criteria on the left, bank criteria on the right.</li>
-    <li>On the <a href="transactions.php">transactions</a> screen, press <b>Process</b> to apply every rule,
-        or tick items yourself for a manual match.</li>
-    <li>Review the suggestions, untick anything you disagree with, then <b>Finalise</b>.</li>
-    <li>Matched items drop off the transactions screen and are stamped with the rule and run reference.</li>
+    <li><b>Name the files.</b> On <a href="files.php">Files</a>, create one for each thing you will
+      load &mdash; a bank statement, a ledger extract. Say what its spare columns are called while you
+      are there.</li>
+    <li><b>Load them.</b> <a href="import.php">Import</a> into a file. You can do this before or after
+      the next step; a file does not need to know what it will be compared against.</li>
+    <li><b>Pair them.</b> On <a href="recs.php">Reconciliations</a>, create one and say which two files
+      it compares, and what to call each side. The same file can be used by more than one, which is
+      how a sequence works &mdash; source to interface, interface to ledger, ledger to statement.</li>
+    <li><b>Write the rules.</b> On <a href="rules.php">Rules</a>, describe what to look for on each
+      side. Tightest first; a rule can apply to every reconciliation or just to one.</li>
+    <li><b>Process.</b> On <a href="transactions.php">Transactions</a>, apply the rules, or tick items
+      and match them yourself.</li>
+    <li><b>Review and finalise.</b> Suggestions are not committed until you say so. Adjust anything
+      that does not balance; only what balances is written.</li>
+    <li><b>Repeat</b> until what is left will never match, then download it to work up the journals.</li>
   </ol>
-  <p class="small muted">A match is only ever made when both sides total exactly the same amount.</p>
+  <p class="small muted">A match is only ever committed when both sides total exactly the same
+    amount. Matched items drop off the transactions screen, so it always shows what is still open.</p>
 </div>
 <?php render_footer(); ?>
