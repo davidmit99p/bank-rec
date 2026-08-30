@@ -60,8 +60,8 @@ foreach ($rows as $r) {
         $r['txn_date'],
         $r['description'],
         number_format((float)$r['value'], 2, '.', ''),   // plain, so Excel reads it as a number
-        $r['matched_at'] === null ? 'Unmatched' : 'Matched',
-        $r['rule_ref'] ?? '',
+        ($r['matched_here'] ?? null) === null ? 'Unmatched' : 'Matched',
+        $r['matched_rule'] ?? '',
         $r['run_ref'] ?? '',
         empty($r['parent_id']) ? '' : number_format((float)($r['parent_value'] ?? 0), 2, '.', ''),
         $r['source_file'] ?? '',

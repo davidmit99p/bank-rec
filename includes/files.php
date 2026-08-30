@@ -86,13 +86,17 @@ function file_extra_labels($fileId)
 }
 
 // How many rows a file holds, and what they come to.
+//
+// "Open" here means not yet matched in ANY reconciliation, because a file can be
+// in several and this is a view of the file itself rather than of one pairing.
 function file_stats($fileId)
 {
     if (!files_ready()) return ['n' => 0, 'open_n' => 0, 'total' => 0, 'open_total' => 0];
+    $unused = "NOT EXISTS (SELECT 1 FROM rec_matched m WHERE m.txn_id = rec_txns.id)";
     $st = db()->prepare("SELECT COUNT(*) n,
-                                COALESCE(SUM(matched_at IS NULL), 0) open_n,
+                                COALESCE(SUM(CASE WHEN {$unused} THEN 1 ELSE 0 END), 0) open_n,
                                 COALESCE(SUM(value), 0) total,
-                                COALESCE(SUM(CASE WHEN matched_at IS NULL THEN value ELSE 0 END), 0) open_total
+                                COALESCE(SUM(CASE WHEN {$unused} THEN value ELSE 0 END), 0) open_total
                          FROM rec_txns WHERE file_id = ? AND split_at IS NULL");
     $st->execute([(int)$fileId]);
     return $st->fetch();

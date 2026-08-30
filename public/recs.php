@@ -103,10 +103,15 @@ $f = $edit ?: $blank;
 // a line of numbers for each one
 $rows = $pdo->query(
     "SELECT r.*,
-       (SELECT COUNT(*) FROM rec_txns t WHERE t.file_id = r.left_file_id  AND t.matched_at IS NULL AND t.split_at IS NULL) l_open,
-       (SELECT COUNT(*) FROM rec_txns t WHERE t.file_id = r.right_file_id AND t.matched_at IS NULL AND t.split_at IS NULL) b_open,
-       (SELECT COALESCE(SUM(t.value),0) FROM rec_txns t WHERE t.file_id = r.left_file_id  AND t.matched_at IS NULL AND t.split_at IS NULL) l_val,
-       (SELECT COALESCE(SUM(t.value),0) FROM rec_txns t WHERE t.file_id = r.right_file_id AND t.matched_at IS NULL AND t.split_at IS NULL) b_val,
+       -- open means open IN THIS RECONCILIATION, so each row asks about itself
+       (SELECT COUNT(*) FROM rec_txns t WHERE t.file_id = r.left_file_id AND t.split_at IS NULL
+          AND NOT EXISTS (SELECT 1 FROM rec_matched m WHERE m.txn_id = t.id AND m.rec_id = r.id)) l_open,
+       (SELECT COUNT(*) FROM rec_txns t WHERE t.file_id = r.right_file_id AND t.split_at IS NULL
+          AND NOT EXISTS (SELECT 1 FROM rec_matched m WHERE m.txn_id = t.id AND m.rec_id = r.id)) b_open,
+       (SELECT COALESCE(SUM(t.value),0) FROM rec_txns t WHERE t.file_id = r.left_file_id AND t.split_at IS NULL
+          AND NOT EXISTS (SELECT 1 FROM rec_matched m WHERE m.txn_id = t.id AND m.rec_id = r.id)) l_val,
+       (SELECT COALESCE(SUM(t.value),0) FROM rec_txns t WHERE t.file_id = r.right_file_id AND t.split_at IS NULL
+          AND NOT EXISTS (SELECT 1 FROM rec_matched m WHERE m.txn_id = t.id AND m.rec_id = r.id)) b_val,
        (SELECT f.name FROM rec_files f WHERE f.id = r.left_file_id)  left_file_name,
        (SELECT f.name FROM rec_files f WHERE f.id = r.right_file_id) right_file_name,
        (SELECT COUNT(*) FROM rec_runs n WHERE n.rec_id = r.id AND n.status = 'finalised') runs_n

@@ -7,6 +7,7 @@
 // -----------------------------------------------------------------------------
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/files.php';
+require_once __DIR__ . '/matchstate.php';
 require_once __DIR__ . '/context.php';
 require_once __DIR__ . '/splits.php';
 
@@ -222,9 +223,9 @@ function offsets_by_nearness($tol)
 // Everything not yet finalised as matched.
 function load_open($side)
 {
-    // no alias on the table here, so none in the file condition either
+    // no alias on the table here, so none in the conditions either
     return db()->query("SELECT id, txn_date, description, value FROM rec_txns
-                        WHERE matched_at IS NULL AND " . file_where($side, '') . not_split()
+                        WHERE " . open_where('') . " AND " . file_where($side, '') . not_split()
                         . " ORDER BY txn_date, id")->fetchAll();
 }
 
@@ -570,15 +571,12 @@ function finalise_run($runId)
     $pdo->beginTransaction();
     try {
         $lines = $pdo->prepare("SELECT side, txn_id FROM rec_match_lines WHERE group_id = ?");
-        $up = $pdo->prepare("UPDATE rec_txns SET run_id=?, rule_ref=?, group_no=?, matched_at=NOW()
-                             WHERE id=? AND matched_at IS NULL");
         $count = 0;
         foreach ($groups as $g) {
             $lines->execute([$g['id']]);
-            foreach ($lines->fetchAll() as $ln) {
-                $up->execute([$runId, $g['rule_ref'], $g['group_no'], $ln['txn_id']]);
-                $count += $up->rowCount();
-            }
+            $ids = array_column($lines->fetchAll(), 'txn_id');
+            $count += mark_matched($ids, $run['rec_id'] ?? null, $g['id'], $runId,
+                                   $g['rule_ref'], $g['group_no']);
         }
         // Anything unticked is thrown away, so those items come back as open.
         $pdo->prepare("DELETE FROM rec_match_groups WHERE run_id = ? AND accepted = 0")->execute([$runId]);
@@ -626,10 +624,13 @@ function unmatch_whole_group($groupId)
     $st->execute([$groupId]);
     $lines = $st->fetchAll();
 
-    $up = $pdo->prepare("UPDATE rec_txns SET run_id=NULL, rule_ref=NULL, group_no=NULL, matched_at=NULL WHERE id=?");
-    foreach ($lines as $l) {
-        $up->execute([$l['txn_id']]);
-    }
+    // which reconciliation this match belongs to
+    $st = $pdo->prepare("SELECT r.rec_id FROM rec_match_groups g
+                         JOIN rec_runs r ON r.id = g.run_id WHERE g.id = ?");
+    $st->execute([$groupId]);
+    $recId = $st->fetchColumn();
+
+    unmark_matched(array_column($lines, 'txn_id'), $recId);
     $pdo->prepare("DELETE FROM rec_match_groups WHERE id = ?")->execute([$groupId]);
     return count($lines);
 }
@@ -681,16 +682,24 @@ function unmatch_selection(array $ledgerIds, array $bankIds)
         $freed = 0;
         $split = 0;
         $gone  = 0;
-        $up = $pdo->prepare("UPDATE rec_txns SET run_id=NULL, rule_ref=NULL, group_no=NULL, matched_at=NULL WHERE id=?");
+        // each affected match belongs to a reconciliation; taking a line out
+        // frees it in that one only
+        $recOf = $pdo->prepare("SELECT r.rec_id FROM rec_match_groups g
+                                JOIN rec_runs r ON r.id = g.run_id WHERE g.id = ?");
 
         foreach ($sel as $gid => $sides) {
+            $recOf->execute([$gid]);
+            $recId = $recOf->fetchColumn();
+            $freeIds = [];
             foreach (['ledger', 'bank'] as $side) {
                 foreach ($sides[$side] ?? [] as $line) {
                     $pdo->prepare("DELETE FROM rec_match_lines WHERE id = ?")->execute([$line['line_id']]);
-                    $up->execute([$line['txn_id']]);
+                    $freeIds[] = $line['txn_id'];
                     $freed++;
                 }
             }
+            unmark_matched($freeIds, $recId);
+
             // what is left of the match?
             $st = $pdo->prepare("SELECT side, SUM(value) total, COUNT(*) n FROM rec_match_lines
                                  WHERE group_id = ? GROUP BY side");

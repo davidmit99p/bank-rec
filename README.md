@@ -32,6 +32,16 @@ Spare fields belong to the file rather than the reconciliation, because the file
 is the thing with the columns. Naming them on the reconciliation would mean
 naming the same file's columns again in every reconciliation it appears in.
 
+**A file can be in more than one reconciliation at a time**, and whether a
+transaction is matched is asked per reconciliation rather than once and for all.
+That is what makes a sequence work: source system to interface, interface to
+ledger, ledger to statement, with the middle files taking part in two links each
+and settled independently in both.
+
+The tool has no notion of a "chain" - it is a set of pairs, and you walk them in
+whatever order suits. If a chain view earns its place later it will be a report
+over the pairs, not a new mechanism.
+
 ## More than one reconciliation
 
 The tool holds as many reconciliations as you like - one per bank account, or a

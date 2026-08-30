@@ -17,8 +17,8 @@ $sign = $wantIn && $wantOut ? 'both' : ($wantIn ? 'in' : 'out');
 function monthly($side, $show, $sign)
 {
     $where = [file_where($side, 't')];
-    if ($show === 'open')    $where[] = 't.matched_at IS NULL';
-    if ($show === 'matched') $where[] = 't.matched_at IS NOT NULL';
+    if ($show === 'open')    $where[] = open_where('t');
+    if ($show === 'matched') $where[] = matched_where('t');
     if ($sign === 'in')      $where[] = 't.value > 0';
     if ($sign === 'out')     $where[] = 't.value < 0';
     $sql = "SELECT DATE_FORMAT(t.txn_date, '%Y-%m') ym,

@@ -9,7 +9,12 @@ $pdo = db();
 if (($_POST['action'] ?? '') === 'unmatch') {
     $runId = (int)$_POST['run'];
     $pdo->beginTransaction();
-    $pdo->prepare("UPDATE rec_txns SET run_id=NULL, rule_ref=NULL, group_no=NULL, matched_at=NULL WHERE run_id=?")->execute([$runId]);
+    // free every transaction this run matched, in the reconciliation it belonged to
+    $st = $pdo->prepare("SELECT txn_id, rec_id FROM rec_matched WHERE run_id = ?");
+    $st->execute([$runId]);
+    $byRec = [];
+    foreach ($st->fetchAll() as $row) $byRec[$row['rec_id']][] = $row['txn_id'];
+    foreach ($byRec as $rid => $ids) unmark_matched($ids, $rid);
     $pdo->prepare("DELETE FROM rec_match_groups WHERE run_id=?")->execute([$runId]);
     $pdo->prepare("UPDATE rec_runs SET status='discarded' WHERE id=?")->execute([$runId]);
     $pdo->commit();

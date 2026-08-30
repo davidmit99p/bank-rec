@@ -9,6 +9,7 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/files.php';
 require_once __DIR__ . '/context.php';
 require_once __DIR__ . '/splits.php';
+require_once __DIR__ . '/matchstate.php';
 
 // Column names allowed in an ORDER BY, so nothing from the address bar
 // reaches the query.
@@ -43,8 +44,10 @@ function item_filters($side, $q, $from, $to, $show, $sign)
     $where = [file_where($side, 't')];
     $args  = [];
 
-    if ($show === 'open')    $where[] = 't.matched_at IS NULL';
-    if ($show === 'matched') $where[] = 't.matched_at IS NOT NULL';
+    // matched IN THIS RECONCILIATION - the same line can be settled against one
+    // file and still outstanding against another
+    if ($show === 'open')    $where[] = open_where('t');
+    if ($show === 'matched') $where[] = matched_where('t');
 
     if ($sign === 'in')  $where[] = 't.value > 0';
     if ($sign === 'out') $where[] = 't.value < 0';
@@ -59,7 +62,7 @@ function item_filters($side, $q, $from, $to, $show, $sign)
     // available to tick again. Asked as a question about the run rather than by
     // listing every claimed id, which would be thousands of them at volume.
     if ($show !== 'matched') {
-        $where[] = "(t.matched_at IS NOT NULL OR NOT EXISTS (
+        $where[] = "(" . matched_where('t') . " OR NOT EXISTS (
                         SELECT 1 FROM rec_match_lines ml
                         JOIN rec_match_groups mg ON mg.id = ml.group_id
                         JOIN rec_runs mr ON mr.id = mg.run_id AND mr.status = 'draft'"
@@ -78,7 +81,7 @@ function count_items($side, $q, $from, $to, $show = 'open', $sign = 'both')
     [$table, $where, $args] = item_filters($side, $q, $from, $to, $show, $sign);
     $st = db()->prepare("SELECT COUNT(*) n,
                                 COALESCE(SUM(t.value), 0) total,
-                                COALESCE(SUM(t.matched_at IS NULL), 0) open_n
+                                COALESCE(SUM(CASE WHEN " . open_where('t') . " THEN 1 ELSE 0 END), 0) open_n
                          FROM {$table} t" . $where);
     $st->execute($args);
     return $st->fetch();
@@ -90,12 +93,20 @@ function list_items($side, $q, $from, $to, $show = 'open', $sortKey = 'date', $d
 {
     [$table, $where, $args] = item_filters($side, $q, $from, $to, $show, $sign);
 
-    $sql = "SELECT t.*, r.run_ref,
-                   (SELECT p.value FROM rec_txns p WHERE p.id = t.parent_id) AS parent_value,
-                   (SELECT l.group_id FROM rec_match_lines l
-                     WHERE l.txn_id = t.id LIMIT 1) AS group_id
-            FROM {$table} t
-            LEFT JOIN rec_runs r ON r.id = t.run_id"
+    // matched_here, matched_rule and run_ref all describe this reconciliation
+    // only, which is why they come from the join rather than from the row
+    // With no reconciliation chosen there is nothing to join to, so the columns
+    // that describe "matched here" come back empty rather than the query failing.
+    $mj = matched_join('t');
+    $cols = $mj
+        ? "m.matched_at AS matched_here, m.rule_ref AS matched_rule, m.group_id AS group_id, r.run_ref"
+        : "NULL AS matched_here, NULL AS matched_rule, NULL AS group_id, NULL AS run_ref";
+
+    $sql = "SELECT t.*, {$cols},
+                   (SELECT p.value FROM rec_txns p WHERE p.id = t.parent_id) AS parent_value
+            FROM {$table} t"
+         . $mj
+         . ($mj ? " LEFT JOIN rec_runs r ON r.id = m.run_id" : "")
          . $where
          . " ORDER BY " . order_expression($sortKey, $dir);
 

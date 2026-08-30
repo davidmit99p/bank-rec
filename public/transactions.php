@@ -72,7 +72,7 @@ if (($_POST['action'] ?? '') === 'manual') {
             if (!$ids) return [];
             $in = implode(',', array_fill(0, count($ids), '?'));
             $st = db()->prepare("SELECT id, value FROM rec_txns
-                                 WHERE id IN ($in) AND matched_at IS NULL AND "
+                                 WHERE id IN ($in) AND " . open_where('') . " AND "
                                 . file_where($side, '') . not_split());
             $st->execute($ids);
             return $st->fetchAll();
@@ -456,7 +456,7 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
           </tr></thead>
           <tbody>
           <?php foreach ($rows as $t):
-              $isMatched = $t['matched_at'] !== null;
+              $isMatched = ($t['matched_here'] ?? null) !== null;
               $box = '<input type="checkbox" name="' . $side . '[]" value="' . (int)$t['id'] . '"'
                    . ' class="tick" data-side="' . $tag . '" data-value="' . h($t['value']) . '"'
                    . ' data-matched="' . ($isMatched ? 1 : 0) . '"'
@@ -493,8 +493,8 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
                   <span class="tag" title="split out of <?= h(money($t['parent_value'] ?? 0)) ?> on <?= h($t['txn_date']) ?>">split</span>
                 <?php endif; ?>
                 <?php if ($isMatched): ?>
-                  <span class="tag <?= is_numeric($t['rule_ref']) ? '' : 'manual' ?>"><?php
-                    echo is_numeric($t['rule_ref']) ? 'rule ' . h($t['rule_ref']) : h($t['rule_ref']); ?></span>
+                  <span class="tag <?= is_numeric($t['matched_rule']) ? '' : 'manual' ?>"><?php
+                    echo is_numeric($t['matched_rule']) ? 'rule ' . h($t['matched_rule']) : h($t['matched_rule']); ?></span>
                   <span class="tag"><?= h($t['run_ref']) ?></span>
                 <?php endif; ?></td>
               <?php foreach (array_keys(extra_labels($side)) as $key): ?>
