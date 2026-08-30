@@ -20,7 +20,9 @@
 -- become two files, named after it, keeping their spare field names.
 --
 -- Running it twice is harmless - every step checks whether it has already been
--- done.
+-- done. If anything is imported after this has been run but before the new code
+-- is deployed, run sql/migration_007b_copy_again.sql to bring those rows across
+-- too.
 -- ---------------------------------------------------------------------------
 
 -- A file: something you loaded, with its own name and its own spare fields.
@@ -70,16 +72,23 @@ CREATE TABLE IF NOT EXISTS rec_txns (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- A reconciliation now points at two files.
+-- IF NOT EXISTS so this whole file can be run again without complaining that
+-- a column it added last time is already there.
 ALTER TABLE rec_recs
-    ADD COLUMN left_file_id  INT NULL,
-    ADD COLUMN right_file_id INT NULL,
-    ADD INDEX (left_file_id), ADD INDEX (right_file_id);
+    ADD COLUMN IF NOT EXISTS left_file_id  INT NULL,
+    ADD COLUMN IF NOT EXISTS right_file_id INT NULL,
+    ADD INDEX IF NOT EXISTS ix_recs_left_file  (left_file_id),
+    ADD INDEX IF NOT EXISTS ix_recs_right_file (right_file_id);
 
-ALTER TABLE rec_imports ADD COLUMN file_id INT NULL, ADD INDEX (file_id);
+ALTER TABLE rec_imports
+    ADD COLUMN IF NOT EXISTS file_id INT NULL,
+    ADD INDEX IF NOT EXISTS ix_imports_file (file_id);
 
 -- Match lines keep a note of the id they used to point at, so this can be
 -- re-run without pointing them at the wrong thing the second time.
-ALTER TABLE rec_match_lines ADD COLUMN legacy_txn_id INT NULL, ADD INDEX (legacy_txn_id);
+ALTER TABLE rec_match_lines
+    ADD COLUMN IF NOT EXISTS legacy_txn_id INT NULL,
+    ADD INDEX IF NOT EXISTS ix_lines_legacy (legacy_txn_id);
 
 -- ---------------------------------------------------------------------------
 -- 1. Each existing reconciliation's two sides become two files.
