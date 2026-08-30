@@ -138,6 +138,18 @@ if (($_POST['action'] ?? '') === 'manual') {
     }
 }
 
+// --- a note against one transaction ------------------------------------------
+if (($_POST['action'] ?? '') === 'note') {
+    $side = ($_POST['side'] ?? '') === 'bank' ? 'bank' : 'ledger';
+    [$ok, $msg] = save_note_on($side, (int)($_POST['txn_id'] ?? 0), $_POST['note_text'] ?? '');
+    if ($ok) {
+        flash($msg);
+        header('Location: transactions.php?' . http_build_query($_POST['back'] ?? []));
+        exit;
+    }
+    $error = $msg;
+}
+
 // --- splitting one transaction into parts ------------------------------------
 if (($_POST['action'] ?? '') === 'split') {
     $side = ($_POST['side'] ?? '') === 'bank' ? 'bank' : 'ledger';
@@ -184,6 +196,13 @@ $bq   = trim($_GET['bq'] ?? '');
 $from = trim($_GET['from'] ?? '');
 $to   = trim($_GET['to'] ?? '');
 $show = in_array($_GET['show'] ?? '', ['open', 'matched', 'both'], true) ? $_GET['show'] : 'open';
+
+// Picking a month is easier than typing two dates, so it simply fills them in.
+$month  = trim($_GET['month'] ?? '');
+$months = available_months();
+if ($month !== '' && isset($months[$month]) && ($b = month_bounds($month))) {
+    [$from, $to] = $b;
+}
 
 // Money in / money out. A first visit has no parameters at all, so both are on;
 // after that they say what they say. Turning both off is treated as both on.
@@ -257,7 +276,8 @@ $ledger = list_items('ledger', $lq, $from, $to, $show, $lsort, $ldir, $sign,
 $bank   = list_items('bank',   $bq, $from, $to, $show, $bsort, $bdir, $sign,
                      $perPage, ($bPage - 1) * $perPage);
 
-$back   = array_filter(['lq' => $lq, 'bq' => $bq, 'from' => $from, 'to' => $to, 'show' => $show,
+$back   = array_filter(['lq' => $lq, 'bq' => $bq, 'month' => $month,
+                        'from' => $from, 'to' => $to, 'show' => $show,
                         'per' => $perPage, 'lp' => $lPage, 'bp' => $bPage,
                         'in' => $wantIn ? '1' : '', 'out' => $wantOut ? '1' : '']);
 
@@ -304,7 +324,7 @@ items into view when something needs undoing.</p>
 // inside the form that carries the tick boxes.
 foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $others]): ?>
   <form method="get" id="<?= $id ?>" style="display:none">
-    <?php foreach ($others + ['from' => $from, 'to' => $to, 'show' => $show,
+    <?php foreach ($others + ['month' => $month, 'from' => $from, 'to' => $to, 'show' => $show,
                               'per' => $perPage] as $k => $v): ?>
       <input type="hidden" name="<?= h($k) ?>" value="<?= h($v) ?>">
     <?php endforeach; ?>
@@ -316,6 +336,15 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
 <form method="get" class="panel" style="display:flex;gap:.75rem;align-items:end;flex-wrap:wrap">
   <input type="hidden" name="lq" value="<?= h($lq) ?>">
   <input type="hidden" name="bq" value="<?= h($bq) ?>">
+  <?php if ($months): ?>
+  <div><label>Month</label>
+    <select name="month" onchange="this.form.submit()">
+      <option value="">Any month</option>
+      <?php foreach ($months as $ym => $label): ?>
+        <option value="<?= h($ym) ?>"<?= $month === $ym ? ' selected' : '' ?>><?= h($label) ?></option>
+      <?php endforeach; ?>
+    </select></div>
+  <?php endif; ?>
   <div><label>Dated from</label><input type="date" name="from" value="<?= h($from) ?>"></div>
   <div><label>To</label><input type="date" name="to" value="<?= h($to) ?>"></div>
   <div><label>Show</label>
@@ -408,7 +437,7 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
         <table>
           <thead><tr>
             <?php
-              $allBox = '<th style="width:3.2rem" class="center">'
+              $allBox = '<th style="width:4.6rem" class="center">'
                 . '<input type="checkbox" class="selectall" data-for="' . $tag . '"'
                 . ' title="Tick or untick every row on this page">'
                 . '</th>';
@@ -426,6 +455,19 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
                    . ' class="tick" data-side="' . $tag . '" data-value="' . h($t['value']) . '"'
                    . ' data-matched="' . ($isMatched ? 1 : 0) . '"'
                    . ' data-group="' . (int)($t['group_id'] ?? 0) . '">';
+              $noteBtn = '';
+              if (extras_ready()) {
+                  $has = trim((string)($t['notes'] ?? '')) !== '';
+                  $noteBtn = '<button type="button" class="notebtn' . ($has ? ' has' : '') . '"'
+                    . ' title="' . ($has ? h($t['notes']) : 'Add a note') . '"'
+                    . ' data-side="' . $side . '"'
+                    . ' data-id="' . (int)$t['id'] . '"'
+                    . ' data-date="' . h($t['txn_date']) . '"'
+                    . ' data-value="' . h(money($t['value'])) . '"'
+                    . ' data-desc="' . h($t['description']) . '"'
+                    . ' data-note="' . h((string)($t['notes'] ?? '')) . '">'
+                    . ($has ? '&#9998;' : '&#9997;') . '</button>';
+              }
               $splitBtn = '';
               if (splits_ready() && !$isMatched) {
                   $splitBtn = '<button type="button" class="splitbtn" title="Split this into parts"'
@@ -438,7 +480,7 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
               }
           ?>
             <tr<?= $isMatched ? ' style="opacity:.6"' : '' ?>>
-              <?php if ($tickFirst) echo '<td class="tickcell">' . $box . $splitBtn . '</td>'; ?>
+              <?php if ($tickFirst) echo '<td class="tickcell">' . $box . $splitBtn . $noteBtn . '</td>'; ?>
               <td class="small"><?= h($t['txn_date']) ?></td>
               <td class="desc" title="<?= h($t['description']) ?>"><?= h($t['description']) ?>
                 <?php if (!empty($t['parent_id'])): ?>
@@ -450,7 +492,7 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
                   <span class="tag"><?= h($t['run_ref']) ?></span>
                 <?php endif; ?></td>
               <td class="num <?= $t['value'] < 0 ? 'neg' : '' ?>"><?= money($t['value']) ?></td>
-              <?php if (!$tickFirst) echo '<td class="tickcell">' . $splitBtn . $box . '</td>'; ?>
+              <?php if (!$tickFirst) echo '<td class="tickcell">' . $noteBtn . $splitBtn . $box . '</td>'; ?>
             </tr>
           <?php endforeach; ?>
           <?php if (!$rows): ?><tr><td colspan="4" class="muted">Nothing to show.</td></tr><?php endif; ?>
@@ -597,6 +639,48 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
   refreshHeadings();
 })();
 </script>
+<?php if (extras_ready()): ?>
+<dialog id="noteDlg" class="split-dlg">
+  <form method="post">
+    <input type="hidden" name="action" value="note">
+    <input type="hidden" name="side"   id="ntSide">
+    <input type="hidden" name="txn_id" id="ntId">
+    <?php foreach ($back as $k => $v): ?>
+      <input type="hidden" name="back[<?= h($k) ?>]" value="<?= h($v) ?>">
+    <?php endforeach; ?>
+    <h2 style="margin-top:0">Note</h2>
+    <p class="muted small" id="ntSummary"></p>
+    <textarea name="note_text" id="ntText" style="min-height:9rem"
+      placeholder="Why this is still open, what it is waiting on, anything worth remembering"></textarea>
+    <div class="actions">
+      <button class="btn" type="submit">Save</button>
+      <button class="btn ghost" type="button" id="ntCancel">Cancel</button>
+      <span class="muted small" style="margin-left:auto">Emptying the box removes the note.</span>
+    </div>
+  </form>
+</dialog>
+<script>
+(function () {
+  var dlg = document.getElementById('noteDlg');
+  if (!dlg || !dlg.showModal) return;
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('.notebtn');
+    if (btn) {
+      document.getElementById('ntSide').value = btn.dataset.side;
+      document.getElementById('ntId').value   = btn.dataset.id;
+      document.getElementById('ntSummary').textContent =
+        btn.dataset.date + '  ' + btn.dataset.desc + '  ' + btn.dataset.value;
+      document.getElementById('ntText').value = btn.dataset.note || '';
+      dlg.showModal();
+      document.getElementById('ntText').focus();
+      return;
+    }
+    if (e.target.closest('#ntCancel')) dlg.close();
+  });
+})();
+</script>
+<?php endif; ?>
+
 <?php if (splits_ready()): ?>
 <dialog id="splitDlg" class="split-dlg">
   <form method="post" id="splitForm">

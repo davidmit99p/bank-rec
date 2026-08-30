@@ -104,3 +104,9 @@ textarea{min-height:4rem}
 /* page links under a transaction list */
 .pager{display:flex;gap:.3rem;align-items:center;flex-wrap:wrap;margin-top:.5rem}
 .pager .btn{padding:.2rem .5rem}
+
+/* the note button, beside the split one */
+.notebtn{border:1px solid var(--line);background:transparent;color:var(--muted);
+  border-radius:4px;cursor:pointer;font-size:.8rem;line-height:1;padding:.15rem .25rem;margin:0 .1rem}
+.notebtn:hover{border-color:var(--accent);color:var(--accent);background:#f6f3ec}
+.notebtn.has{border-color:var(--warn);color:var(--warn);background:#fdf6e6}

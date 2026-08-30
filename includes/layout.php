@@ -2,6 +2,7 @@
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/context.php';
 require_once __DIR__ . '/splits.php';
+require_once __DIR__ . '/extras.php';
 
 // Switching reconciliation redirects, so it must happen before any output.
 handle_rec_switch();

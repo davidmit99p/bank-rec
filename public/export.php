@@ -9,6 +9,7 @@ require_once __DIR__ . '/../includes/context.php';
 require_once __DIR__ . '/../includes/splits.php';
 require_once __DIR__ . '/../includes/txnlist.php';
 require_once __DIR__ . '/../includes/matcher.php';
+require_once __DIR__ . '/../includes/extras.php';
 
 $side = ($_GET['side'] ?? '') === 'bank' ? 'bank' : 'ledger';
 $q    = trim($_GET['q'] ?? '');
@@ -46,13 +47,15 @@ header('Cache-Control: no-store');
 $out = fopen('php://output', 'w');
 echo "\xEF\xBB\xBF";   // so Excel opens it as UTF-8 rather than guessing
 
-fputcsv($out, ['Date', 'Description', 'Value', 'Status', 'Rule', 'Run',
-               'Split from', 'Source file', 'Reference']);
+$head = ['Date', 'Description', 'Value', 'Status', 'Rule', 'Run',
+         'Split from', 'Source file', 'Reference'];
+if (extras_ready()) $head[] = 'Notes';
+fputcsv($out, $head);
 
 $total = 0.0;
 foreach ($rows as $r) {
     $total += (float)$r['value'];
-    fputcsv($out, [
+    $line = [
         $r['txn_date'],
         $r['description'],
         number_format((float)$r['value'], 2, '.', ''),   // plain, so Excel reads it as a number
@@ -62,7 +65,9 @@ foreach ($rows as $r) {
         empty($r['parent_id']) ? '' : number_format((float)($r['parent_value'] ?? 0), 2, '.', ''),
         $r['source_file'] ?? '',
         $r['id'],
-    ]);
+    ];
+    if (extras_ready()) $line[] = $r['notes'] ?? '';
+    fputcsv($out, $line);
 }
 
 // a total on the end, so the figure can be checked against the screen
