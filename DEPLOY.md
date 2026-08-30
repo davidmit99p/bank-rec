@@ -159,6 +159,25 @@ shares a domain with this now, so it is worth thirty seconds to confirm.
 
 ---
 
+## Rolling back
+
+**The code.** A known-good version is frozen on GitHub as the tag
+`v1.0-two-file` and the branch `stable-two-file` - the complete two-file tool as
+it stood on 30 August 2026, before the multi-file work.
+
+To go back: Plesk -> Websites & Domains -> Git -> the `bank-rec` repository ->
+change the branch from `main` to `stable-two-file` and deploy. Switching back to
+`main` afterwards is just as quick.
+
+**The database, which matters more.** Rolling the code back does NOT undo a
+database migration. If a change added a table or moved data, the database stays
+in the new shape whatever the code says.
+
+So before any migration that moves existing data, take an export first:
+phpMyAdmin -> select `entigy_recon` -> **Export** -> Go, and keep the `.sql`
+file somewhere you will find it. The code lives in three places; the data lives
+in one.
+
 ## Tidying this up later
 
 This layout is a workaround for the plan limits, not the ideal.
