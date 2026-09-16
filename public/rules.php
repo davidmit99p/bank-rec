@@ -75,7 +75,14 @@ reorder.</p>
       <span class="tag">Rule <?= (int)$r['id'] ?></span>
       <b><?= h($r['name']) ?></b>
       <span class="muted small"><?= h(grouping_modes()[$r['grouping']] ?? $r['grouping']) ?>
-        &middot; dates within <?= (int)$r['date_tol'] ?> day<?= $r['date_tol'] == 1 ? '' : 's' ?>
+        <?php if (!empty($r['ignore_date'])): ?>&middot; dates ignored<?php else: ?>
+        &middot; dates within <?= (int)$r['date_tol'] ?> day<?= $r['date_tol'] == 1 ? '' : 's' ?><?php endif; ?>
+        <?php if ($agree = agree_pairs($r)):
+            $nl = extra_labels('ledger'); $nb = extra_labels('bank');
+            $kf = key_fields(); ?>
+          &middot; must agree: <?= h(implode(', ', array_map(
+              fn($p) => ($nl[$p[0]] ?? $kf[$p[0]] ?? $p[0]) . ' = ' . ($nb[$p[1]] ?? $kf[$p[1]] ?? $p[1]), $agree))) ?>
+        <?php endif; ?>
         <?= $r['sign_mode'] === 'opposite' ? '&middot; signs reversed' : '' ?>
         <?= $r['link_desc'] ? '&middot; descriptions must agree' : '' ?></span>
       <span style="margin-left:auto;display:flex;gap:.4rem">

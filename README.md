@@ -109,6 +109,8 @@ the two sides may be paired:
 | Shape of the match | one-to-one, several to one, one to several, a contra, everything in the same day or month, or everything sharing the same key |
 | Most lines in a group | the largest group the engine will build (2 to 8) |
 | Dates may differ by | how many days apart the two sides may be |
+| Ignore dates altogether | dates play no part; the nearest is still preferred where there is a choice |
+| Fields that must agree | up to four pairs - a field on each side, e.g. period = period, reference = journal ref - that must be equal as well as the amount |
 | Signs | whether the bank shows the same sign as the ledger, or the opposite |
 | Descriptions share a word | only pair items whose wording overlaps |
 
@@ -165,6 +167,14 @@ be a different spare field on each side, since each file names its own. A key
 found on only one side is not suggested, and rows with nothing in that field are
 left out. If the two sides agree the group balances and commits; if they do not,
 it comes through as an unbalanced suggestion showing how far out that booking is.
+
+**Fields that must agree.** Each file can carry six spare fields. A rule can
+insist that up to four of them agree across the two sides - accounting period,
+reference, journal type - on top of the amount. The two sides of a pair can be
+different spare fields. Comparison ignores capitals and spaces at either end,
+and a line with a blank in one of those fields is left alone by that rule. It
+works with every shape: both sides are split into groups where the fields agree
+and the shape runs inside each, so nothing is ever paired across them.
 
 **Monthly summary.** The Summary screen totals each side by month with the
 difference between them, and carries that difference forward, so you can see

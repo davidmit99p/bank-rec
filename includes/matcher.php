@@ -210,6 +210,34 @@ function rows_near_date(array $dateIndex, $anchor, $tol)
     return $out;
 }
 
+// Given dates, nearest to $anchor first; the earlier one wins a tie.
+function dates_by_nearness(array $dates, $anchor)
+{
+    $a = date_ts($anchor);
+    usort($dates, function ($x, $y) use ($a) {
+        $dx = abs(date_ts($x) - $a);
+        $dy = abs(date_ts($y) - $a);
+        return $dx === $dy ? strcmp($x, $y) : $dx <=> $dy;
+    });
+    return $dates;
+}
+
+// The rows nearest to $anchor whatever the distance, for rules that ignore dates.
+// Stops once $limit unused rows are in hand - the combination search only ever
+// looks at a handful anyway.
+function rows_nearest(array $dateIndex, $anchor, array $used, $limit = 60)
+{
+    $out = [];
+    foreach (dates_by_nearness(array_keys($dateIndex), $anchor) as $day) {
+        foreach ($dateIndex[$day] as $r) {
+            if (isset($used[$r['id']])) continue;
+            $out[] = $r;
+            if (count($out) >= $limit) return $out;
+        }
+    }
+    return $out;
+}
+
 // Day offsets ordered by how close they are: 0, -1, +1, -2, +2 ... so the first
 // candidate found is the nearest in date and the search can stop there. The
 // earlier date wins a tie, which is what the old every-row scan did too.
@@ -255,8 +283,11 @@ function find_single(array $lrow, array $index, array $usedB, array $rule)
 
     $tol  = (int)$rule['date_tol'];
     $base = date_ts($lrow['txn_date']);
-    foreach (offsets_by_nearness($tol) as $off) {
-        $day = date('Y-m-d', $base + $off * 86400);
+    // with dates ignored, every date at this amount is in play - still nearest first
+    $days = !empty($rule['ignore_date'])
+          ? dates_by_nearness(array_keys($index[$key]), $lrow['txn_date'])
+          : array_map(fn($off) => date('Y-m-d', $base + $off * 86400), offsets_by_nearness($tol));
+    foreach ($days as $day) {
         if (empty($index[$key][$day])) continue;
         foreach ($index[$key][$day] as $b) {
             if (isset($usedB[$b['id']])) continue;
@@ -439,6 +470,89 @@ function period_len($grouping)
     return null;
 }
 
+// --- fields that must agree --------------------------------------------------
+//
+// A rule can insist that, say, the accounting period, the reference and the
+// journal type agree on both sides as well as the amount. Up to four such pairs,
+// each naming a field on the left file and the one it must equal on the right -
+// they can be different spare fields, because each file names its own.
+//
+// Rather than teach every shape to check them, both sides are first split into
+// buckets where those fields agree, and the shape then runs inside each bucket.
+// Nothing can be paired across buckets, so every shape honours it for free, and
+// smaller buckets make the search quicker rather than slower.
+
+const AGREE_MAX = 4;
+
+// Has migration_011 been run?
+function agree_ready()
+{
+    static $ok = null;
+    if ($ok === null) {
+        try { db()->query("SELECT agree_left1, ignore_date FROM rec_rules LIMIT 1"); $ok = true; }
+        catch (Throwable $e) { $ok = false; }
+    }
+    return $ok;
+}
+
+// [[left field, right field], ...] for the pairs this rule has filled in.
+function agree_pairs(array $rule)
+{
+    $out = [];
+    for ($i = 1; $i <= AGREE_MAX; $i++) {
+        $l = trim((string)($rule['agree_left' . $i] ?? ''));
+        $r = trim((string)($rule['agree_right' . $i] ?? ''));
+        if ($l !== '' && $r !== '') $out[] = [$l, $r];
+    }
+    return $out;
+}
+
+// The values of those fields as one comparable key. Trimmed and upper-cased,
+// like the key grouping. A blank in any of them gives null: something with no
+// period cannot be said to agree on the period.
+function agree_value(array $row, array $fields)
+{
+    $parts = [];
+    foreach ($fields as $f) {
+        $v = mb_strtoupper(trim((string)($row[$f] ?? '')));
+        if ($v === '') return null;
+        $parts[] = $v;
+    }
+    return implode(' / ', $parts);
+}
+
+function partition_by_agreement(array $rows, array $fields)
+{
+    $out = [];
+    foreach ($rows as $r) {
+        $k = agree_value($r, $fields);
+        if ($k !== null) $out[$k][] = $r;
+    }
+    return $out;
+}
+
+// The buckets a rule works through: one per set of agreeing values, or a
+// single bucket holding everything when the rule asks for no agreement.
+function rule_buckets(array $rule, array $L, array $B)
+{
+    $pairs = agree_pairs($rule);
+    if (!$pairs) return [['L' => $L, 'B' => $B, 'tag' => '']];
+
+    $pl = partition_by_agreement($L, array_column($pairs, 0));
+    $pb = partition_by_agreement($B, array_column($pairs, 1));
+    $contra = contra_side($rule['grouping']);
+    $keys = $contra === 'ledger' ? array_keys($pl)
+          : ($contra === 'bank'  ? array_keys($pb)
+          : array_keys(array_intersect_key($pl, $pb)));
+    sort($keys, SORT_STRING);
+
+    $out = [];
+    foreach ($keys as $k) {
+        $out[] = ['L' => $pl[$k] ?? [], 'B' => $pb[$k] ?? [], 'tag' => ' - ' . $k];
+    }
+    return $out;
+}
+
 // -----------------------------------------------------------------------------
 // Run every active rule against the open items and write the suggestions.
 // -----------------------------------------------------------------------------
@@ -465,17 +579,24 @@ function run_rules($runId)
     $perRule = [];
     foreach ($rules as $rule) {
         $made = 0;
-        $L = array_values(array_filter($ledger,
+        $allL = array_values(array_filter($ledger,
                 fn($r) => !isset($usedL[$r['id']]) && row_matches_side($r, $rule, 'l_')));
-        $B = array_values(array_filter($bank,
+        $allB = array_values(array_filter($bank,
                 fn($r) => !isset($usedB[$r['id']]) && row_matches_side($r, $rule, 'b_')));
-        // a contra rule only needs its own side to have anything in it
+        $sign   = $rule['sign_mode'] === 'opposite' ? -1 : 1;
+        $noDate = !empty($rule['ignore_date']);
         $contra = contra_side($rule['grouping']);
+
+      // one pass per set of agreeing fields (just one pass if the rule has none)
+      foreach (rule_buckets($rule, $allL, $allB) as $bucket) {
+        $L    = $bucket['L'];
+        $B    = $bucket['B'];
+        $tag  = $bucket['tag'];
+        $name = mb_substr($rule['name'] . $tag, 0, 150);
+        // a contra rule only needs its own side to have anything in it
         $haveWork = $contra === 'ledger' ? (bool)$L
                   : ($contra === 'bank' ? (bool)$B : ($L && $B));
-        if (!$haveWork) { $perRule[] = ['rule' => $rule, 'made' => 0]; continue; }
-
-        $sign = $rule['sign_mode'] === 'opposite' ? -1 : 1;
+        if (!$haveWork) continue;
 
         if ($rule['grouping'] === 'key') {
             // everything sharing a reference on both sides, whether or not the
@@ -496,7 +617,7 @@ function run_rules($runId)
                 $bTot = array_sum(array_map(fn($r) => (float)$r['value'], $bs));
                 $groupNo++;
                 $insG->execute([$runId, $groupNo, (string)$rule['id'],
-                                mb_substr($rule['name'] . ' - ' . $k, 0, 150),
+                                mb_substr($rule['name'] . ' - ' . $k . $tag, 0, 150),
                                 $lTot, $bTot, $rule['sign_mode']]);
                 $gid = $pdo->lastInsertId();
                 foreach ($ls as $r) { $insL->execute([$gid, 'ledger', $r['id'], $r['value']]); $usedL[$r['id']] = 1; }
@@ -521,7 +642,7 @@ function run_rules($runId)
                 $when = $len === 10 ? date('j F Y', strtotime($ym))
                                     : date('F Y', strtotime($ym . '-01'));
                 $insG->execute([$runId, $groupNo, (string)$rule['id'],
-                                mb_substr($rule['name'] . ' - ' . $when, 0, 150),
+                                mb_substr($rule['name'] . ' - ' . $when . $tag, 0, 150),
                                 $lTot, $bTot, $rule['sign_mode']]);
                 $gid = $pdo->lastInsertId();
                 foreach ($ls as $r) { $insL->execute([$gid, 'ledger', $r['id'], $r['value']]); $usedL[$r['id']] = 1; }
@@ -532,12 +653,13 @@ function run_rules($runId)
             // equal and opposite entries on one side only
             $side  = contra_side($rule['grouping']);
             $isL   = $side === 'ledger';
+            $tol   = $noDate ? PHP_INT_MAX : (int)$rule['date_tol'];
             $pairs = $isL
-                ? find_contra_pairs($L, $usedL, (int)$rule['date_tol'], (int)$rule['link_desc'])
-                : find_contra_pairs($B, $usedB, (int)$rule['date_tol'], (int)$rule['link_desc']);
+                ? find_contra_pairs($L, $usedL, $tol, (int)$rule['link_desc'])
+                : find_contra_pairs($B, $usedB, $tol, (int)$rule['link_desc']);
             foreach ($pairs as $pair) {
                 $groupNo++;
-                $insG->execute([$runId, $groupNo, (string)$rule['id'], $rule['name'],
+                $insG->execute([$runId, $groupNo, (string)$rule['id'], $name,
                                 0, 0, 'same']);
                 $gid = $pdo->lastInsertId();
                 foreach ($pair as $r) $insL->execute([$gid, $side, $r['id'], $r['value']]);
@@ -549,13 +671,14 @@ function run_rules($runId)
             foreach ($B as $b) {
                 if (isset($usedB[$b['id']])) continue;
                 $target = $sign * (float)$b['value'];
-                $near = rows_near_date($byDate, $b['txn_date'], (int)$rule['date_tol']);
+                $near = $noDate ? rows_nearest($byDate, $b['txn_date'], $usedL)
+                                : rows_near_date($byDate, $b['txn_date'], (int)$rule['date_tol']);
                 $set = find_combination($near, $usedL, $target, $b['txn_date'],
                                         (int)$rule['max_group'], $b['description'], (int)$rule['link_desc']);
                 if (!$set) continue;
                 $groupNo++;
                 $lTot = array_sum(array_map(fn($r) => (float)$r['value'], $set));
-                $insG->execute([$runId, $groupNo, (string)$rule['id'], $rule['name'],
+                $insG->execute([$runId, $groupNo, (string)$rule['id'], $name,
                                 $lTot, (float)$b['value'], $rule['sign_mode']]);
                 $gid = $pdo->lastInsertId();
                 foreach ($set as $r) { $insL->execute([$gid, 'ledger', $r['id'], $r['value']]); $usedL[$r['id']] = 1; }
@@ -569,13 +692,14 @@ function run_rules($runId)
             foreach ($L as $l) {
                 if (isset($usedL[$l['id']])) continue;
                 $target = $sign * (float)$l['value'];
-                $near = rows_near_date($byDate, $l['txn_date'], (int)$rule['date_tol']);
+                $near = $noDate ? rows_nearest($byDate, $l['txn_date'], $usedB)
+                                : rows_near_date($byDate, $l['txn_date'], (int)$rule['date_tol']);
                 $set = find_combination($near, $usedB, $target, $l['txn_date'],
                                         (int)$rule['max_group'], $l['description'], (int)$rule['link_desc']);
                 if (!$set) continue;
                 $groupNo++;
                 $bTot = array_sum(array_map(fn($r) => (float)$r['value'], $set));
-                $insG->execute([$runId, $groupNo, (string)$rule['id'], $rule['name'],
+                $insG->execute([$runId, $groupNo, (string)$rule['id'], $name,
                                 (float)$l['value'], $bTot, $rule['sign_mode']]);
                 $gid = $pdo->lastInsertId();
                 $insL->execute([$gid, 'ledger', $l['id'], $l['value']]);
@@ -591,7 +715,7 @@ function run_rules($runId)
                 $b = find_single($l, $bankIndex, $usedB, $rule);
                 if (!$b) continue;
                 $groupNo++;
-                $insG->execute([$runId, $groupNo, (string)$rule['id'], $rule['name'],
+                $insG->execute([$runId, $groupNo, (string)$rule['id'], $name,
                                 (float)$l['value'], (float)$b['value'], $rule['sign_mode']]);
                 $gid = $pdo->lastInsertId();
                 $insL->execute([$gid, 'ledger', $l['id'], $l['value']]);
@@ -601,6 +725,7 @@ function run_rules($runId)
                 $made++;
             }
         }
+      }
         $perRule[] = ['rule' => $rule, 'made' => $made];
     }
     return $perRule;

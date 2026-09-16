@@ -18,8 +18,9 @@ if ($id) {
 $blank = [
     'name' => '', 'active' => 1, 'sort_order' => 100, 'notes' => '',
     'date_tol' => 3, 'sign_mode' => 'same', 'grouping' => 'one', 'max_group' => 4, 'link_desc' => 0,
-    'rec_id' => null, 'key_left' => 'extra1', 'key_right' => 'extra1',
+    'rec_id' => null, 'key_left' => 'extra1', 'key_right' => 'extra1', 'ignore_date' => 0,
 ];
+for ($i = 1; $i <= AGREE_MAX; $i++) $blank += ['agree_left' . $i => '', 'agree_right' . $i => ''];
 foreach (['l_', 'b_'] as $p) {
     $blank += [
         $p.'desc_op' => 'any',  $p.'desc_val' => '',
@@ -53,6 +54,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $vals['active']     = isset($_POST['active']) ? 1 : 0;
     if (recs_ready()) $vals['rec_id'] = $vals['rec_id'] === '' ? null : (int)$vals['rec_id'];
     $vals['link_desc']  = isset($_POST['link_desc']) ? 1 : 0;
+    if (agree_ready()) {
+        $allowed = key_fields();
+        for ($i = 1; $i <= AGREE_MAX; $i++) {
+            $l = (string)($_POST['agree_left' . $i] ?? '');
+            $b = (string)($_POST['agree_right' . $i] ?? '');
+            // a pair only counts when both halves are chosen
+            $ok = isset($allowed[$l]) && isset($allowed[$b]);
+            $vals['agree_left' . $i]  = $ok ? $l : null;
+            $vals['agree_right' . $i] = $ok ? $b : null;
+        }
+        $vals['ignore_date'] = isset($_POST['ignore_date']) ? 1 : 0;
+    }
 
     $names = array_keys($vals);
     if ($id) {
@@ -191,6 +204,41 @@ form to say which <b>bank</b> lines they should be paired with. Leave a box on &
           </div>
         <?php endforeach; ?>
       </div>
+    <?php endif; ?>
+
+    <?php if (agree_ready()): ?>
+      <h3 style="margin-top:1.2rem">Fields that must agree</h3>
+      <p class="small muted">As well as the amount, insist that these agree on both sides &mdash; an
+        accounting period, a reference, a journal type. Pick the field on each side; they can be different
+        spare fields, because each file names its own. Capitals and spaces at either end are ignored.
+        A line with nothing in one of these fields is left alone by this rule. Works with every shape.
+        <?php if (!recs_ready() || ($r['rec_id'] ?? null) === null): ?>
+          The names shown come from the reconciliation you are working on.<?php endif; ?></p>
+      <?php $namedL = extra_labels('ledger'); $namedB = extra_labels('bank'); ?>
+      <table style="width:auto">
+        <thead><tr><th></th><th><?= h(side_label('ledger')) ?></th><th></th><th><?= h(side_label('bank')) ?></th></tr></thead>
+        <tbody>
+        <?php for ($i = 1; $i <= AGREE_MAX; $i++): ?>
+          <tr><td class="small muted"><?= $i ?>.</td>
+          <?php foreach ([['agree_left', $namedL], ['agree_right', $namedB]] as $n => [$field, $named]): ?>
+            <?php if ($n === 1): ?><td>=</td><?php endif; ?>
+            <td><select name="<?= $field . $i ?>">
+              <option value="">&mdash; not used &mdash;</option>
+              <?php foreach (key_fields() as $k => $generic): ?>
+                <option value="<?= $k ?>"<?= ($r[$field . $i] ?? '') === $k ? ' selected' : '' ?>>
+                  <?= h($named[$k] ?? $generic) ?><?= ($k === 'description' || isset($named[$k])) ? '' : ' (not named)' ?></option>
+              <?php endforeach; ?>
+            </select></td>
+          <?php endforeach; ?>
+          </tr>
+        <?php endfor; ?>
+        </tbody>
+      </table>
+      <label style="margin-top:.8rem"><input type="checkbox" name="ignore_date" value="1" style="width:auto"
+        <?= !empty($r['ignore_date']) ? 'checked' : '' ?>> Ignore dates altogether
+        <span class="muted small">&mdash; the &ldquo;dates may differ by&rdquo; setting is not used; where
+        there is a choice, the nearest date is still preferred. Handy when the period and reference say
+        all that matters.</span></label>
     <?php endif; ?>
 
     <label style="margin-top:.8rem"><input type="checkbox" name="link_desc" value="1" style="width:auto"
