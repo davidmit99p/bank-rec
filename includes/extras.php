@@ -1,6 +1,6 @@
 <?php
 // -----------------------------------------------------------------------------
-// The notes field, and the three spare fields each side of a reconciliation can
+// The notes field, and the spare fields (up to six) each file can
 // carry.
 //
 // The spare fields are deliberately just data: they are imported, shown and

@@ -30,16 +30,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $act   = isset($_POST['active']) ? 1 : 0;
             if ($name === '') throw new RuntimeException('Give the file a name.');
             $ex = [];
-            for ($i = 1; $i <= 3; $i++) $ex[] = trim((string)($_POST['extra' . $i] ?? '')) ?: null;
+            foreach (spare_keys() as $k) $ex[] = trim((string)($_POST[$k] ?? '')) ?: null;
+            $keys = spare_keys();
 
             if ($id) {
-                $pdo->prepare("UPDATE rec_files SET name=?, notes=?, active=?, extra1=?, extra2=?, extra3=?
-                               WHERE id=?")
+                $set = implode(', ', array_map(fn($k) => "$k=?", $keys));
+                $pdo->prepare("UPDATE rec_files SET name=?, notes=?, active=?, $set WHERE id=?")
                     ->execute(array_merge([$name, $notes, $act], $ex, [$id]));
                 flash('Saved.');
             } else {
-                $pdo->prepare("INSERT INTO rec_files (name, notes, active, extra1, extra2, extra3)
-                               VALUES (?,?,?,?,?,?)")
+                $qs = implode(',', array_fill(0, count($keys), '?'));
+                $pdo->prepare("INSERT INTO rec_files (name, notes, active, " . implode(', ', $keys) . ")
+                               VALUES (?,?,?,$qs)")
                     ->execute(array_merge([$name, $notes, $act], $ex));
                 flash('Created ' . $name . '. You can import into it now.');
             }
@@ -71,8 +73,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $editId = (int)($_GET['edit'] ?? 0);
 $edit   = $editId ? get_file($editId) : null;
-$blank  = ['id' => 0, 'name' => '', 'notes' => '', 'active' => 1,
-           'extra1' => '', 'extra2' => '', 'extra3' => ''];
+$blank  = ['id' => 0, 'name' => '', 'notes' => '', 'active' => 1]
+        + array_fill_keys(spare_keys(), '');
 $f = $edit ?: $blank;
 
 $files = all_files();
@@ -94,7 +96,7 @@ render_header('Files');
   <tbody>
   <?php foreach ($files as $file):
       $s  = file_stats($file['id']);
-      $ex = array_values(array_filter([$file['extra1'], $file['extra2'], $file['extra3']]));
+      $ex = array_values(file_extra_labels($file['id']));
       $by = file_used_by($file['id']);
   ?>
     <tr<?= $file['active'] ? '' : ' style="opacity:.5"' ?>>
@@ -140,16 +142,19 @@ render_header('Files');
   </div>
 
   <label>Spare fields</label>
-  <p class="small muted" style="margin-top:0">Three extra columns this file carries beyond the date,
-    description and value &mdash; a reference, a type, a cost centre. Name them here and they can be
-    mapped on import, shown beside each transaction and included in downloads. Leave one empty and it
-    is not used. You can add one later and re-import to pick it up.</p>
+  <p class="small muted" style="margin-top:0">Up to <?= spare_count() ?> extra columns this file carries
+    beyond the date, description and value &mdash; an accounting period, a reference, a journal type, a
+    cost centre. Name them here and they can be mapped on import, shown beside each transaction and
+    included in downloads. Leave one empty and it is not used. You can add one later and re-import to
+    pick it up.</p>
+  <?php foreach (array_chunk(spare_keys(), 3) as $chunk): ?>
   <div class="row">
-    <?php for ($i = 1; $i <= 3; $i++): ?>
-      <input type="text" name="extra<?= $i ?>" value="<?= h($f['extra' . $i] ?? '') ?>"
-             placeholder="Spare field <?= $i ?>">
-    <?php endfor; ?>
+    <?php foreach ($chunk as $k): ?>
+      <input type="text" name="<?= $k ?>" value="<?= h($f[$k] ?? '') ?>"
+             placeholder="Spare field <?= (int)substr($k, 5) ?>">
+    <?php endforeach; ?>
   </div>
+  <?php endforeach; ?>
 
   <label>Notes</label>
   <textarea name="notes" placeholder="Where this comes from, which account it is, anything worth remembering"><?= h($f['notes']) ?></textarea>

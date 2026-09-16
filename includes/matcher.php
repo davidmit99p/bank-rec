@@ -227,7 +227,7 @@ function load_open($side)
 {
     // The spare fields come too, because a rule can group on one of them.
     // no alias on the table here, so none in the conditions either
-    return db()->query("SELECT id, txn_date, description, value, extra1, extra2, extra3
+    return db()->query("SELECT id, txn_date, description, value, " . implode(', ', spare_keys()) . "
                         FROM rec_txns
                         WHERE " . open_where('') . " AND " . file_where($side, '') . not_split()
                         . " ORDER BY txn_date, id")->fetchAll();
@@ -410,8 +410,9 @@ function key_rules_ready()
 // labels shown to the user come from the reconciliation being worked on.
 function key_fields()
 {
-    return ['extra1' => 'Spare field 1', 'extra2' => 'Spare field 2',
-            'extra3' => 'Spare field 3', 'description' => 'Description'];
+    $out = [];
+    foreach (spare_keys() as $k) $out[$k] = 'Spare field ' . substr($k, 5);
+    return $out + ['description' => 'Description'];
 }
 
 // Bucket rows by the value of one field. Trimmed and upper-cased, because a

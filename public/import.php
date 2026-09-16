@@ -116,7 +116,7 @@ try {
             'description' => (int)$_POST['col_description'],
             'value'       => (int)$_POST['col_value'],
         ];
-        foreach (['extra1', 'extra2', 'extra3'] as $x) {
+        foreach (spare_keys() as $x) {
             $picked = $_POST['col_' . $x] ?? '';
             $map[$x] = ($picked === '' ? null : (int)$picked);
         }

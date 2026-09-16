@@ -72,13 +72,39 @@ function file_where($side, $alias)
     return $id === null ? '1 = 0' : "{$p}file_id = " . (int)$id;
 }
 
+// How many spare fields a file can have. Six once migration_010 has run, three
+// until then - the site deploys before the database is changed, so this asks
+// the database rather than assuming.
+function spare_count()
+{
+    static $n = null;
+    if ($n === null) {
+        try {
+            db()->query("SELECT extra6 FROM rec_files LIMIT 1");
+            db()->query("SELECT extra6 FROM rec_txns LIMIT 1");
+            $n = 6;
+        } catch (Throwable $e) {
+            $n = 3;
+        }
+    }
+    return $n;
+}
+
+// The spare field columns: ['extra1', 'extra2', ...].
+function spare_keys()
+{
+    $out = [];
+    for ($i = 1; $i <= spare_count(); $i++) $out[] = 'extra' . $i;
+    return $out;
+}
+
 // The spare fields a file has been given names for: [column => label].
 function file_extra_labels($fileId)
 {
     $f = get_file($fileId);
     if (!$f) return [];
     $out = [];
-    for ($i = 1; $i <= 3; $i++) {
+    for ($i = 1; $i <= spare_count(); $i++) {
         $label = trim((string)($f['extra' . $i] ?? ''));
         if ($label !== '') $out['extra' . $i] = $label;
     }

@@ -11,6 +11,7 @@
 //   - and the split can be undone.
 // -----------------------------------------------------------------------------
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/files.php';   // spare_keys(): parts carry every spare field
 
 function splits_ready()
 {
@@ -92,7 +93,8 @@ function split_transaction($side, $id, array $parts)
     }
 
     $cols = ['txn_date', 'description', 'value', 'source_file', 'parent_id', 'file_id',
-             'import_id', 'extra1', 'extra2', 'extra3'];
+             'import_id'];
+    $cols = array_merge($cols, spare_keys());
 
     $pdo->beginTransaction();
     try {
@@ -101,9 +103,10 @@ function split_transaction($side, $id, array $parts)
         $ins = $pdo->prepare($sql);
         // the parts inherit everything about the original except the amount
         foreach ($clean as $p) {
-            $ins->execute([$t['txn_date'], mb_substr($p['description'], 0, 500), $p['value'],
-                           $t['source_file'], (int)$id, $t['file_id'], $t['import_id'],
-                           $t['extra1'], $t['extra2'], $t['extra3']]);
+            $vals = [$t['txn_date'], mb_substr($p['description'], 0, 500), $p['value'],
+                     $t['source_file'], (int)$id, $t['file_id'], $t['import_id']];
+            foreach (spare_keys() as $k) $vals[] = $t[$k] ?? null;
+            $ins->execute($vals);
         }
         $pdo->prepare("UPDATE {$table} SET split_at = NOW() WHERE id = ?")->execute([(int)$id]);
         $pdo->commit();
