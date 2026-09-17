@@ -34,11 +34,48 @@ $error = null;
 // JavaScript is off.
 function posted_ids($side)
 {
+    // "tick all filtered items": the browser sends the filters, not the ids,
+    // because the rows run past the page on screen
+    if (($_POST['all_' . $side] ?? '') === '1') return filtered_ids($side);
+
     $compact = $_POST[$side . '_ids'] ?? null;
     if ($compact !== null) {
         return array_values(array_filter(array_map('intval', explode(',', (string)$compact))));
     }
     return array_values(array_filter(array_map('intval', (array)($_POST[$side] ?? []))));
+}
+
+// Every row the filters on screen pick out for one side, across all pages.
+//
+// The filters come back from the page's own settings (the same "back" fields
+// used to return to it), so this is exactly the list that was showing. The
+// count and total the page showed come too: if the list has changed since -
+// someone imported, or matched something elsewhere - it refuses rather than
+// act on rows you never saw.
+function filtered_ids($side)
+{
+    $p      = (array)($_POST['back'] ?? []);
+    $pfx    = $side === 'ledger' ? 'l' : 'b';
+    $q      = trim((string)($p[$pfx . 'q'] ?? ''));
+    $from   = trim((string)($p['from'] ?? ''));
+    $to     = trim((string)($p['to'] ?? ''));
+    $show   = in_array($p['show'] ?? '', ['open', 'matched', 'both'], true) ? $p['show'] : 'open';
+    $in     = !empty($p['in']);
+    $out    = !empty($p['out']);
+    $sign   = ($in === $out) ? 'both' : ($in ? 'in' : 'out');
+    $colf   = read_column_filters($side, $pfx . 'f_', $p);
+
+    $rows  = list_items($side, $q, $from, $to, $show, 'date', 'asc', $sign, null, 0, $colf);
+    $total = array_sum(array_map(fn($r) => (float)$r['value'], $rows));
+
+    $wantN     = (int)($_POST['all_' . $side . '_n'] ?? -1);
+    $wantTotal = (float)($_POST['all_' . $side . '_total'] ?? 0);
+    if (count($rows) !== $wantN || abs($total - $wantTotal) >= 0.005) {
+        throw new RuntimeException('The filtered ' . side_label($side) . ' list has changed since the page '
+            . 'was loaded (it now holds ' . number_format(count($rows)) . ' items totalling ' . money($total)
+            . '). Nothing was done - look again and tick again.');
+    }
+    return array_map(fn($r) => (int)$r['id'], $rows);
 }
 
 // --- Step 5: apply the rules -------------------------------------------------
@@ -134,7 +171,7 @@ if (($_POST['action'] ?? '') === 'manual') {
               . ' entries that cancel each other out. It will be committed when you finalise.'
             : 'Manual match added to ' . $run['run_ref'] . ' for ' . money($lTot)
               . '. It will be committed when you finalise.');
-        header('Location: transactions.php');
+        header('Location: transactions.php?' . http_build_query($_POST['back'] ?? []));
         exit;
     } catch (Throwable $e) {
         $error = $e->getMessage();
@@ -182,7 +219,11 @@ if (($_POST['action'] ?? '') === 'unsplit') {
 
 // --- unmatching, when matched items are on show ------------------------------
 if (($_POST['action'] ?? '') === 'unmatch') {
-    [$ok, $msg] = unmatch_selection(posted_ids('ledger'), posted_ids('bank'));
+    try {
+        [$ok, $msg] = unmatch_selection(posted_ids('ledger'), posted_ids('bank'));
+    } catch (RuntimeException $e) {
+        [$ok, $msg] = [false, $e->getMessage()];
+    }
     if ($ok) {
         flash($msg);
         header('Location: transactions.php?' . http_build_query($_POST['back'] ?? []));
@@ -414,6 +455,11 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
 <form method="post" id="txnForm">
   <input type="hidden" name="ledger_ids" id="ledgerIds" disabled>
   <input type="hidden" name="bank_ids"   id="bankIds"   disabled>
+  <?php foreach (['ledger', 'bank'] as $sd): ?>
+    <input type="hidden" name="all_<?= $sd ?>" id="all_<?= $sd ?>" value="0">
+    <input type="hidden" name="all_<?= $sd ?>_n" value="<?= (int)($sd === 'ledger' ? $lCount['n'] : $bCount['n']) ?>">
+    <input type="hidden" name="all_<?= $sd ?>_total" value="<?= h(number_format($sd === 'ledger' ? $lTot : $bTot, 2, '.', '')) ?>">
+  <?php endforeach; ?>
   <?php foreach ($back as $k => $v): ?>
     <input type="hidden" name="back[<?= h($k) ?>]" value="<?= h($v) ?>">
   <?php endforeach; ?>
@@ -478,6 +524,18 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
         <a class="btn ghost" href="export.php?<?= h(http_build_query(array_filter($dl, fn($v) => $v !== ''))) ?>"
            title="Download this list as a CSV, exactly as filtered">Download</a>
       </div>
+
+      <?php if ($pages > 1): ?>
+        <div class="allnote" id="allnote<?= $tag ?>" data-side="<?= $tag ?>" data-sidename="<?= $side ?>"
+             data-n="<?= (int)$totalN ?>" data-open="<?= (int)$openN ?>"
+             data-total="<?= h(number_format($tot, 2, '.', '')) ?>" hidden>
+          <span class="offer">Every row on this page is ticked.
+            <button type="button" class="btn small tickall">Tick all <?= number_format($totalN) ?> filtered items</button></span>
+          <span class="chosen">All <b><?= number_format($totalN) ?></b> filtered items are ticked, across
+            <?= $pages ?> pages, totalling <b class="num"><?= money($tot) ?></b>.
+            <button type="button" class="btn ghost small untickall">Untick all</button></span>
+        </div>
+      <?php endif; ?>
 
       <div class="scroll">
         <table>
@@ -596,6 +654,31 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
 
   function fmt(n) { return n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
 
+  // "Tick all filtered items" - one per side. While it is on, the side counts
+  // as its whole filtered list rather than what is drawn on this page.
+  var allMode = { L: false, B: false };
+  function note(side) { return document.getElementById('allnote' + side); }
+  function setAll(side, on) {
+    allMode[side] = on;
+    var n = note(side);
+    if (!n) return;
+    document.getElementById('all_' + n.dataset.sidename).value = on ? '1' : '0';
+  }
+  function showNotes() {
+    ['L', 'B'].forEach(function (side) {
+      var n = note(side);
+      if (!n) return;
+      var boxes = form.querySelectorAll('.tick[data-side="' + side + '"]');
+      var on = 0;
+      boxes.forEach(function (c) { if (c.checked) on++; });
+      var pageFull = boxes.length > 0 && on === boxes.length;
+      if (!pageFull && allMode[side]) setAll(side, false);
+      n.hidden = !pageFull;
+      n.querySelector('.offer').hidden  = allMode[side];
+      n.querySelector('.chosen').hidden = !allMode[side];
+    });
+  }
+
   function update() {
     var l = 0, b = 0, nL = 0, nB = 0, nOpen = 0, nMatched = 0;
     var groups = {};
@@ -604,6 +687,7 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
       var row = c.closest('tr');
       if (!c.checked) { row.classList.remove('ticked'); return; }
       row.classList.add('ticked');
+      if (allMode[c.dataset.side]) return;       // counted from the whole list below
       var v = parseFloat(c.dataset.value) || 0;
       if (c.dataset.side === 'L') { l += v; nL++; } else { b += v; nB++; }
 
@@ -615,6 +699,17 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
       } else {
         nOpen++;
       }
+    });
+
+    var wholeList = false;
+    ['L', 'B'].forEach(function (side) {
+      if (!allMode[side]) return;
+      var n = note(side), cnt = parseInt(n.dataset.n, 10) || 0, open = parseInt(n.dataset.open, 10) || 0;
+      var tot = parseFloat(n.dataset.total) || 0;
+      if (side === 'L') { l += tot; nL += cnt; } else { b += tot; nB += cnt; }
+      nOpen += open;
+      nMatched += cnt - open;
+      if (cnt - open > 0) wholeList = true;       // can't check each match from here
     });
 
     elL.textContent = LEFT_LABEL + ' ticked ' + fmt(l) + ' (' + nL + ')';
@@ -631,6 +726,13 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
       elD.className = 'balance off';
       matchBtn.disabled = true;
       unBtn.disabled = true;
+      return;
+    }
+
+    if (unmatchMode && wholeList) {
+      elD.textContent = nMatched + ' matched lines - each match is checked when you press Unmatch';
+      elD.className = 'balance';
+      unBtn.disabled = false;
       return;
     }
 
@@ -682,18 +784,36 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
       head.indeterminate = on > 0 && on < boxes.length;
       head.disabled = boxes.length === 0;
     });
+    showNotes();
   }
+
+  form.addEventListener('click', function (e) {
+    var t = e.target;
+    if (!t.classList.contains('tickall') && !t.classList.contains('untickall')) return;
+    var side = t.closest('.allnote').dataset.side;
+    var on = t.classList.contains('tickall');
+    setAll(side, on);
+    if (!on) {
+      form.querySelectorAll('.tick[data-side="' + side + '"]').forEach(function (c) { c.checked = false; });
+    }
+    update();
+    refreshHeadings();
+  });
 
   form.addEventListener('change', function (e) {
     if (e.target.classList.contains('selectall')) {
       var on = e.target.checked;
+      if (!on) setAll(e.target.dataset.for, false);
       form.querySelectorAll('.tick[data-side="' + e.target.dataset.for + '"]')
           .forEach(function (c) { c.checked = on; });
       update();
       refreshHeadings();
       return;
     }
-    if (e.target.classList.contains('tick')) { update(); refreshHeadings(); }
+    if (e.target.classList.contains('tick')) {
+      if (!e.target.checked) setAll(e.target.dataset.side, false);   // unticking one row ends "all"
+      update(); refreshHeadings();
+    }
   });
 
   // Send the ticked ids as one field per side, and stop the tick boxes posting
@@ -702,7 +822,7 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
   form.addEventListener('submit', function () {
     var ids = { L: [], B: [] };
     form.querySelectorAll('.tick').forEach(function (c) {
-      if (c.checked) ids[c.dataset.side].push(c.value);
+      if (c.checked && !allMode[c.dataset.side]) ids[c.dataset.side].push(c.value);
       c.disabled = true;                      // disabled inputs are not submitted
     });
     var l = document.getElementById('ledgerIds'), b = document.getElementById('bankIds');

@@ -118,3 +118,8 @@ thead:has(.colfilters) th{position:static}
 .colfilters th{padding:.15rem .25rem;text-transform:none;letter-spacing:0}
 .colfilters input[type=text]{width:100%;min-width:4.5rem;padding:.15rem .3rem;font-size:.78rem;font-weight:400}
 .colfilters input.on{border-color:var(--accent);background:#fff8e6}
+
+/* "tick all filtered items", shown once every row on the page is ticked */
+.allnote{margin:0 0 .4rem;padding:.4rem .6rem;border:1px solid #e8d9a8;background:#fdf6e6;border-radius:6px;font-size:.85rem}
+.allnote .btn{margin-left:.4rem}
+.allnote [hidden]{display:none}
