@@ -110,3 +110,11 @@ textarea{min-height:4rem}
   border-radius:4px;cursor:pointer;font-size:.8rem;line-height:1;padding:.15rem .25rem;margin:0 .1rem}
 .notebtn:hover{border-color:var(--accent);color:var(--accent);background:#f6f3ec}
 .notebtn.has{border-color:var(--warn);color:var(--warn);background:#fdf6e6}
+
+/* a filter box above every column on the transactions screen - the whole head
+   sticks as one, so the filter row does not slide under the headings */
+thead:has(.colfilters){position:sticky;top:0;z-index:2;background:var(--panel)}
+thead:has(.colfilters) th{position:static}
+.colfilters th{padding:.15rem .25rem;text-transform:none;letter-spacing:0}
+.colfilters input[type=text]{width:100%;min-width:4.5rem;padding:.15rem .3rem;font-size:.78rem;font-weight:400}
+.colfilters input.on{border-color:var(--accent);background:#fff8e6}

@@ -196,6 +196,12 @@ if (($_POST['action'] ?? '') === 'unmatch') {
 // look anything like each other.
 $lq   = trim($_GET['lq'] ?? '');
 $bq   = trim($_GET['bq'] ?? '');
+// and a filter above every column, per side
+$lf   = read_column_filters('ledger', 'lf_', $_GET);
+$bf   = read_column_filters('bank',   'bf_', $_GET);
+// the same, as flat address-bar settings, for carrying through forms and redirects
+$lfFlat = []; foreach ($lf as $k => $v) $lfFlat['lf_' . $k] = $v;
+$bfFlat = []; foreach ($bf as $k => $v) $bfFlat['bf_' . $k] = $v;
 $from = trim($_GET['from'] ?? '');
 $to   = trim($_GET['to'] ?? '');
 $show = in_array($_GET['show'] ?? '', ['open', 'matched', 'both'], true) ? $_GET['show'] : 'open';
@@ -264,8 +270,8 @@ $sizes   = [100, 250, 500, 1000];
 $perPage = in_array((int)($_GET['per'] ?? 0), $sizes, true) ? (int)$_GET['per'] : 250;
 
 // The counts and totals cover EVERYTHING matching the filters, not the page.
-$lCount = count_items('ledger', $lq, $from, $to, $show, $sign);
-$bCount = count_items('bank',   $bq, $from, $to, $show, $sign);
+$lCount = count_items('ledger', $lq, $from, $to, $show, $sign, $lf);
+$bCount = count_items('bank',   $bq, $from, $to, $show, $sign, $bf);
 $lTot   = (float)$lCount['total'];  $bTot = (float)$bCount['total'];
 $lOpen  = (int)$lCount['open_n'];   $bOpen = (int)$bCount['open_n'];
 
@@ -275,14 +281,15 @@ $lPage  = min(max(1, (int)($_GET['lp'] ?? 1)), $lPages);
 $bPage  = min(max(1, (int)($_GET['bp'] ?? 1)), $bPages);
 
 $ledger = list_items('ledger', $lq, $from, $to, $show, $lsort, $ldir, $sign,
-                     $perPage, ($lPage - 1) * $perPage);
+                     $perPage, ($lPage - 1) * $perPage, $lf);
 $bank   = list_items('bank',   $bq, $from, $to, $show, $bsort, $bdir, $sign,
-                     $perPage, ($bPage - 1) * $perPage);
+                     $perPage, ($bPage - 1) * $perPage, $bf);
 
 $back   = array_filter(['lq' => $lq, 'bq' => $bq, 'month' => $month,
                         'from' => $from, 'to' => $to, 'show' => $show,
                         'per' => $perPage, 'lp' => $lPage, 'bp' => $bPage,
-                        'in' => $wantIn ? '1' : '', 'out' => $wantOut ? '1' : '']);
+                        'in' => $wantIn ? '1' : '', 'out' => $wantOut ? '1' : '',
+                        'ls' => $lsort, 'ld' => $ldir, 'bs' => $bsort, 'bd' => $bdir] + $lfFlat + $bfFlat);
 
 // Page links for one side, keeping every other setting as it is.
 function pager($sideKey, $page, $pages)
@@ -343,7 +350,11 @@ items into view when something needs undoing.</p>
 // Two small search forms, one per side. They live out here so the inputs shown
 // inside each panel can point at them with form="..." without nesting a form
 // inside the form that carries the tick boxes.
-foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $others]): ?>
+// Each carries the OTHER side's search and column filters, so narrowing one side
+// leaves the other as it was.
+foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsort, 'ld' => $ldir] + $bfFlat],
+          ['searchB', ['lq' => $lq, 'ls' => $lsort, 'ld' => $ldir, 'bs' => $bsort, 'bd' => $bdir] + $lfFlat]]
+         as [$id, $others]): ?>
   <form method="get" id="<?= $id ?>" style="display:none">
     <?php foreach ($others + ['month' => $month, 'from' => $from, 'to' => $to, 'show' => $show,
                               'per' => $perPage] as $k => $v): ?>
@@ -357,6 +368,9 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
 <form method="get" class="panel" style="display:flex;gap:.75rem;align-items:end;flex-wrap:wrap">
   <input type="hidden" name="lq" value="<?= h($lq) ?>">
   <input type="hidden" name="bq" value="<?= h($bq) ?>">
+  <?php foreach ($lfFlat + $bfFlat as $k => $v): ?>
+    <input type="hidden" name="<?= h($k) ?>" value="<?= h($v) ?>">
+  <?php endforeach; ?>
   <?php if ($months): ?>
   <div><label>Month</label>
     <select name="month" onchange="this.form.submit()">
@@ -440,13 +454,24 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
 
       <div style="display:flex;gap:.4rem;margin-bottom:.4rem">
         <input type="text" name="<?= $field ?>" value="<?= h($val) ?>" form="<?= $formId ?>"
-               placeholder="Search this side only...">
+               placeholder="Search description and spare fields...">
         <button class="btn ghost" type="submit" form="<?= $formId ?>">Search</button>
+        <?php
+          $colf = $side === 'ledger' ? $lf : $bf;
+          if ($colf || $val !== ''):
+            // clear this side only, keeping everything else
+            $keep = $_GET;
+            unset($keep[$field], $keep[$pfx . 'p']);
+            foreach (array_keys($keep) as $k) if (str_starts_with($k, $pfx . 'f_')) unset($keep[$k]);
+        ?>
+          <a class="btn ghost" href="?<?= h(http_build_query($keep)) ?>" title="Clear this side's search and column filters">Clear</a>
+        <?php endif; ?>
         <?php
           // the download takes the same filters as the screen, so what comes out
           // is what you are looking at
           $dl = ['side' => $side, 'q' => $val, 'from' => $from, 'to' => $to,
                  'show' => $show, 'sort' => $sortKey, 'dir' => $dir];
+          foreach ($colf as $k => $v) $dl['f_' . $k] = $v;
           if ($wantIn)  $dl['in']  = 1;
           if ($wantOut) $dl['out'] = 1;
         ?>
@@ -471,6 +496,24 @@ foreach ([['searchL', ['bq' => $bq]], ['searchB', ['lq' => $lq]]] as [$id, $othe
             <?php endforeach; ?>
             <?= value_head($pfx, $sortKey, $dir) ?>
             <?php if (!$tickFirst) echo $allBox; ?>
+          </tr>
+          <tr class="colfilters">
+            <?php
+              // one box per column; Enter applies them all for this side
+              $fbox = function ($col, $ph) use ($pfx, $formId, $colf) {
+                  return '<th><input type="text" name="' . $pfx . 'f_' . $col . '" form="' . $formId . '"'
+                       . ' value="' . h($colf[$col] ?? '') . '" placeholder="' . h($ph) . '"'
+                       . ' title="Type and press Enter. =exact  !not  (blank)'
+                       . ($col === 'value' ? '  100 either sign  =-100  >100  <100' : '') . '"'
+                       . (isset($colf[$col]) ? ' class="on"' : '') . '></th>';
+              };
+              if ($tickFirst) echo '<th></th>';
+              echo $fbox('date', 'filter');
+              echo $fbox('description', 'filter');
+              foreach (array_keys(extra_labels($side)) as $key) echo $fbox($key, 'filter');
+              echo $fbox('value', '100, >100');
+              if (!$tickFirst) echo '<th></th>';
+            ?>
           </tr></thead>
           <tbody>
           <?php foreach ($rows as $t):

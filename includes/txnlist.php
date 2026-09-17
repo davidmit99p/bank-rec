@@ -35,10 +35,73 @@ function order_expression($sortKey, $dir)
     return "t.{$col} {$d}, t.id";
 }
 
+// --- a filter above every column ----------------------------------------------
+//
+// Which columns a side can be filtered on: the date, the description, whichever
+// spare fields its file has named, and the value.
+function column_filter_keys($side)
+{
+    return array_merge(['date', 'description'],
+                       array_keys(file_extra_labels(side_file_id($side))),
+                       ['value']);
+}
+
+// The column filters for one side, read from the address bar. They travel as
+// flat names - lf_description, bf_extra2 - so they pass through links, hidden
+// fields and redirects like any other setting.
+function read_column_filters($side, $prefix, array $src)
+{
+    $out = [];
+    foreach (column_filter_keys($side) as $k) {
+        $v = trim((string)($src[$prefix . $k] ?? ''));
+        if ($v !== '') $out[$k] = $v;
+    }
+    return $out;
+}
+
+// One column filter as SQL. What you can type:
+//   text        contains it                     (any column)
+//   =text       is exactly it
+//   !text       does not contain it
+//   (blank)     has nothing in it
+//   100         the amount, either sign         (value column)
+//   =-100       exactly that, sign and all
+//   >100  <100  >=100  <=100
+function column_filter_sql($col, $v)
+{
+    $c = 't.' . $col;
+
+    if ($col === 'value') {
+        $n = str_replace(',', '', $v);
+        if (preg_match('/^(>=|<=|>|<|=)?\s*(-?\d*\.?\d+)$/', $n, $m)) {
+            $num = (float)$m[2];
+            switch ($m[1]) {
+                case '':   return ['ABS(ABS(t.value) - ?) < 0.005', [abs($num)]];
+                case '=':  return ['ABS(t.value - ?) < 0.005', [$num]];
+                default:   return ["t.value {$m[1]} ?", [$num]];
+            }
+        }
+        return ['CAST(t.value AS CHAR) LIKE ?', ['%' . $v . '%']];
+    }
+
+    // dates are held as yyyy-mm-dd; let 31/01/2025 find them too
+    if ($col === 'date') {
+        $c = 'CAST(t.txn_date AS CHAR)';
+        if (preg_match('#^(\d{1,2})/(\d{1,2})/(\d{4})$#', $v, $m)) {
+            $v = sprintf('%04d-%02d-%02d', $m[3], $m[2], $m[1]);
+        }
+    }
+
+    if (strcasecmp($v, '(blank)') === 0) return ["({$c} IS NULL OR {$c} = '')", []];
+    if ($v[0] === '=' && strlen($v) > 1)  return ["{$c} = ?", [substr($v, 1)]];
+    if ($v[0] === '!' && strlen($v) > 1)  return ["({$c} IS NULL OR {$c} NOT LIKE ?)", ['%' . substr($v, 1) . '%']];
+    return ["{$c} LIKE ?", ['%' . $v . '%']];
+}
+
 // Everything the screen filters on, built once and used by both the count and
 // the listing, so the figures at the top of a panel always describe the list
 // underneath it.
-function item_filters($side, $q, $from, $to, $show, $sign)
+function item_filters($side, $q, $from, $to, $show, $sign, array $colf = [])
 {
     $table = 'rec_txns';
     $where = [file_where($side, 't')];
@@ -52,7 +115,19 @@ function item_filters($side, $q, $from, $to, $show, $sign)
     if ($sign === 'in')  $where[] = 't.value > 0';
     if ($sign === 'out') $where[] = 't.value < 0';
 
-    if ($q !== '')    { $where[] = 't.description LIKE ?'; $args[] = '%' . $q . '%'; }
+    // the side's search box looks in the description and every named spare field
+    if ($q !== '') {
+        $cols = array_merge(['description'], array_keys(file_extra_labels(side_file_id($side))));
+        $where[] = '(' . implode(' OR ', array_map(fn($c) => "t.{$c} LIKE ?", $cols)) . ')';
+        foreach ($cols as $c) $args[] = '%' . $q . '%';
+    }
+    $allowed = array_flip(column_filter_keys($side));
+    foreach ($colf as $col => $v) {
+        if (!isset($allowed[$col]) || $v === '') continue;   // nothing from the address bar reaches SQL unchecked
+        [$sql, $a] = column_filter_sql($col, $v);
+        $where[] = $sql;
+        foreach ($a as $x) $args[] = $x;
+    }
     if ($from !== '') { $where[] = 't.txn_date >= ?';      $args[] = $from; }
     if ($to !== '')   { $where[] = 't.txn_date <= ?';      $args[] = $to; }
 
@@ -76,9 +151,9 @@ function item_filters($side, $q, $from, $to, $show, $sign)
 // How many, and what they come to - across everything matching, not just the
 // page on screen. The totals are what a reconciliation turns on, so they must
 // never describe only part of the list.
-function count_items($side, $q, $from, $to, $show = 'open', $sign = 'both')
+function count_items($side, $q, $from, $to, $show = 'open', $sign = 'both', array $colf = [])
 {
-    [$table, $where, $args] = item_filters($side, $q, $from, $to, $show, $sign);
+    [$table, $where, $args] = item_filters($side, $q, $from, $to, $show, $sign, $colf);
     $st = db()->prepare("SELECT COUNT(*) n,
                                 COALESCE(SUM(t.value), 0) total,
                                 COALESCE(SUM(CASE WHEN " . open_where('t') . " THEN 1 ELSE 0 END), 0) open_n
@@ -89,9 +164,9 @@ function count_items($side, $q, $from, $to, $show = 'open', $sign = 'both')
 
 // $limit of null means every row - which is what the download wants.
 function list_items($side, $q, $from, $to, $show = 'open', $sortKey = 'date', $dir = 'asc',
-                    $sign = 'both', $limit = null, $offset = 0)
+                    $sign = 'both', $limit = null, $offset = 0, array $colf = [])
 {
-    [$table, $where, $args] = item_filters($side, $q, $from, $to, $show, $sign);
+    [$table, $where, $args] = item_filters($side, $q, $from, $to, $show, $sign, $colf);
 
     // matched_here, matched_rule and run_ref all describe this reconciliation
     // only, which is why they come from the join rather than from the row
