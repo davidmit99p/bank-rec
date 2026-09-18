@@ -13,6 +13,7 @@ $preview = null;   // set when we are showing the confirm-columns step
 // 1-based row numbers as the user sees them; 0 means "there is no heading row".
 function build_preview($rows, $fileId, $token, $name, $headerRow = null, $dataStart = null)
 {
+    $xl = xlsx_last_read();   // which sheet was read, if it was Excel
     $width = 0;
     foreach (array_slice($rows, 0, 50) as $r) $width = max($width, count($r));
 
@@ -47,8 +48,8 @@ function build_preview($rows, $fileId, $token, $name, $headerRow = null, $dataSt
     $extras = file_extra_labels($fileId);
     foreach ($extras as $key => $label) {
         $map[$key] = null;
-        foreach ($header as $i => $name) {
-            if (strcasecmp(trim((string)$name), $label) === 0) { $map[$key] = $i; break; }
+        foreach ($header as $i => $heading) {   // not $name - that is the file's name
+            if (strcasecmp(trim((string)$heading), $label) === 0) { $map[$key] = $i; break; }
         }
     }
 
@@ -66,6 +67,7 @@ function build_preview($rows, $fileId, $token, $name, $headerRow = null, $dataSt
         'header_row' => $headerRow, 'data_start' => $dataStart,
         'usable' => count($would), 'skipped' => $skipped,
         'header' => $header, 'sample' => $dataRow, 'extras' => $extras,
+        'sheets' => $xl['sheets'] ?? [], 'sheet' => $xl['chosen'] ?? '',
     ];
 }
 
@@ -95,9 +97,13 @@ try {
         $token  = basename($_POST['token'] ?? '');
         $name  = ($_POST['name'] ?? '') ?: $token;
         if (!is_file("$storage/$token")) throw new RuntimeException('That upload has expired. Please choose the file again.');
-        $rows = read_table("$storage/$token", $name);
+        $sheet = $_POST['sheet'] ?? null;
+        $rows = read_table("$storage/$token", $name, $sheet);
+        // a different sheet has its own layout, so work the rows out afresh
+        $sameSheet = ($sheet ?? '') === ($_POST['prev_sheet'] ?? '');
         $preview = build_preview($rows, $fileId, $token, $name,
-                                 $_POST['header_row'] ?? null, $_POST['data_start'] ?? null);
+                                 $sameSheet ? ($_POST['header_row'] ?? null) : null,
+                                 $sameSheet ? ($_POST['data_start'] ?? null) : null);
     }
 
     // --- columns confirmed, do the import ------------------------------------
@@ -110,7 +116,7 @@ try {
         $path  = "$storage/$token";
         if (!is_file($path)) throw new RuntimeException('That upload has expired. Please choose the file again.');
 
-        $rows = read_table($path, $name);
+        $rows = read_table($path, $name, $_POST['sheet'] ?? null);
         $map  = [
             'date'        => (int)$_POST['col_date'],
             'description' => (int)$_POST['col_description'],
@@ -221,6 +227,22 @@ render_header('Import');
       <input type="hidden" name="file_id" value="<?= (int)$preview['file_id'] ?>">
       <input type="hidden" name="token"   value="<?= h($preview['token']) ?>">
       <input type="hidden" name="name"    value="<?= h($preview['name']) ?>">
+      <input type="hidden" name="prev_sheet" value="<?= h($preview['sheet']) ?>">
+      <?php if (count($preview['sheets']) > 1): ?>
+        <div class="panel" style="background:#fdf6e6;border-color:#e8d9a8">
+          <label style="margin-top:0">This workbook has <?= count($preview['sheets']) ?> sheets &mdash; reading</label>
+          <select name="sheet" onchange="this.form.querySelector('[value=repreview]').click()" style="width:auto">
+            <?php foreach ($preview['sheets'] as $sh): ?>
+              <option value="<?= h($sh['name']) ?>"<?= $sh['name'] === $preview['sheet'] ? ' selected' : '' ?>>
+                <?= h($sh['name']) ?> (about <?= number_format($sh['rows']) ?> rows)</option>
+            <?php endforeach; ?>
+          </select>
+          <p class="small muted" style="margin:.3rem 0 0">The biggest sheet is picked to start with. If
+            a summary or pivot tab is being read instead of the data, choose the right one here.</p>
+        </div>
+      <?php elseif ($preview['sheet'] !== ''): ?>
+        <input type="hidden" name="sheet" value="<?= h($preview['sheet']) ?>">
+      <?php endif; ?>
 
       <div class="row" style="align-items:end">
         <div><label>Heading row <span class="muted small">(0 if none)</span></label>
