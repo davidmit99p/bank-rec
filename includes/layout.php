@@ -20,6 +20,7 @@ function render_header($title = '')
     $nav = [
         'index.php'        => 'Home',
         'overview.php'     => 'Overview',
+        'quick.php'        => 'Quick rec',
         'files.php'        => 'Files',
         'import.php'       => '1. Import',
         'rules.php'        => '2. Rules',
@@ -62,7 +63,7 @@ function render_header($title = '')
     <select id="recSel" name="switch_rec" onchange="this.form.submit()">
       <?php foreach ($recs as $r): ?>
         <option value="<?= (int)$r['id'] ?>"<?= $rec && $rec['id'] == $r['id'] ? ' selected' : '' ?>>
-          <?= h($r['name']) ?><?= $r['active'] ? '' : ' (off)' ?></option>
+          <?= h($r['name']) ?><?= $r['active'] ? '' : ' (off)' ?><?= !empty($r['one_off']) ? ' (one-off)' : '' ?></option>
       <?php endforeach; ?>
     </select>
   </form>

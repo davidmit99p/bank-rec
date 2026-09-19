@@ -1,6 +1,7 @@
 <?php
 // The header records: one per reconciliation you have on the go.
 require_once __DIR__ . '/../includes/layout.php';
+require_once __DIR__ . '/../includes/quick.php';
 
 $pdo   = db();
 $error = null;
@@ -63,6 +64,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['rec_id'] = $new;      // switch straight to the new one
                 flash('Created ' . $name . ', and switched to it.');
             }
+            header('Location: recs.php');
+            exit;
+        }
+
+        // A one-off from the quick route: everything it made goes in one step.
+        if ($action === 'delete_one_off') {
+            [$ok, $msg] = delete_one_off((int)($_POST['id'] ?? 0));
+            if (!$ok) throw new RuntimeException($msg);
+            flash($msg);
+            header('Location: recs.php');
+            exit;
+        }
+
+        // A one-off worth keeping becomes an ordinary reconciliation.
+        if ($action === 'keep_one_off') {
+            keep_one_off((int)($_POST['id'] ?? 0));
+            flash('Kept. It is an ordinary reconciliation now, and its files ordinary files.');
             header('Location: recs.php');
             exit;
         }
@@ -137,6 +155,7 @@ else on the site then shows only that one.</p>
     <tr<?= $r['active'] ? '' : ' style="opacity:.5"' ?>>
       <td><?= $r['id'] == $here ? '<span class="tag manual">working on</span>' : '' ?></td>
       <td><b><?= h($r['name']) ?></b>
+        <?php if (is_one_off($r)): ?><span class="tag" style="background:#fdf6e6;color:#8a6d1f">one-off</span><?php endif; ?>
         <?php if ($r['notes']): ?><br><span class="muted small"><?= h($r['notes']) ?></span><?php endif; ?></td>
       <td class="small"><?= h($r['left_label']) ?> / <?= h($r['right_label']) ?>
         <br><span class="muted"><?= h($r['left_file_name'] ?? 'no file') ?>
@@ -150,11 +169,32 @@ else on the site then shows only that one.</p>
           <a class="btn ghost small" href="?switch_rec=<?= (int)$r['id'] ?>">Work on this</a>
         <?php endif; ?>
         <a class="btn ghost small" href="?edit=<?= (int)$r['id'] ?>">Edit</a>
+        <?php if (is_one_off($r)):
+            $fp = one_off_footprint($r['id']);
+            $parts = ['the reconciliation', 'its two files', 'all ' . number_format($fp['txns']) . ' of their transactions'];
+            if ($fp['runs'])  $parts[] = $fp['runs'] . ' matching run' . ($fp['runs'] === 1 ? '' : 's');
+            if ($fp['rules']) $parts[] = $fp['rules'] . ' rule' . ($fp['rules'] === 1 ? '' : 's') . ' made for it';
+            $last = array_pop($parts);
+            $ask = $fp['ok']
+                ? 'Remove ' . $r['name'] . ' completely? This deletes ' . implode(', ', $parts) . ' and ' . $last
+                  . '. It cannot be undone.'
+                : $fp['why']; ?>
+          <form method="post" onsubmit="<?= $fp['ok'] ? 'return confirm(' . h(json_encode($ask)) . ')' : 'alert(' . h(json_encode($ask)) . '); return false' ?>">
+            <input type="hidden" name="action" value="delete_one_off">
+            <input type="hidden" name="id" value="<?= (int)$r['id'] ?>">
+            <button class="btn ghost small" type="submit" title="Remove it, its two files and their transactions"
+              style="color:var(--bad);border-color:var(--bad)">Delete one-off</button></form>
+          <form method="post">
+            <input type="hidden" name="action" value="keep_one_off">
+            <input type="hidden" name="id" value="<?= (int)$r['id'] ?>">
+            <button class="btn ghost small" type="submit" title="Make it an ordinary reconciliation">Keep it</button></form>
+        <?php else: ?>
         <form method="post" onsubmit="return confirm('Delete <?= h($r['name']) ?>?')">
           <input type="hidden" name="action" value="delete">
           <input type="hidden" name="id" value="<?= (int)$r['id'] ?>">
           <button class="btn ghost small" type="submit"
             style="color:var(--bad);border-color:var(--bad)">Delete</button></form>
+        <?php endif; ?>
       </td>
     </tr>
   <?php endforeach; ?>

@@ -101,6 +101,7 @@ render_header('Files');
   ?>
     <tr<?= $file['active'] ? '' : ' style="opacity:.5"' ?>>
       <td><b><?= h($file['name']) ?></b>
+        <?php if (!empty($file['one_off'])): ?><span class="tag" style="background:#fdf6e6;color:#8a6d1f">one-off</span><?php endif; ?>
         <?php if ($file['notes']): ?><br><span class="muted small"><?= h($file['notes']) ?></span><?php endif; ?></td>
       <td class="small"><?= $ex ? h(implode(', ', $ex)) : '<span class="muted">none</span>' ?></td>
       <td class="num"><?= number_format((int)$s['n']) ?></td>
