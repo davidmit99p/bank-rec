@@ -161,6 +161,7 @@ or undo a whole match.</p>
         onclick="return confirm('Undo the whole of match <?= (int)$g['group_no'] ?>?')"
         style="color:var(--bad);border-color:var(--bad)">Undo whole match</button>
     </header>
+    <?= criteria_banner($g) ?>
     <div class="sides">
       <?php foreach ([['ledger', side_label('ledger'), $L], ['bank', side_label('bank'), $B]] as [$side, $label, $rows]): ?>
       <div>

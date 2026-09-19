@@ -98,6 +98,45 @@ function column_filter_sql($col, $v)
     return ["{$c} LIKE ?", ['%' . $v . '%']];
 }
 
+// The filters on one side, in words - "Journal type is GJ, Period contains P02".
+// $p is the screen's settings as they travel in the address bar (or the
+// "back" fields). Returns [] when nothing narrows that side.
+function describe_side_filters($side, array $p)
+{
+    $pfx    = $side === 'ledger' ? 'l' : 'b';
+    $labels = ['date' => 'Date', 'description' => 'Description', 'value' => 'Value']
+            + file_extra_labels(side_file_id($side));
+    $out = [];
+    $q = trim((string)($p[$pfx . 'q'] ?? ''));
+    if ($q !== '') $out[] = 'search "' . $q . '"';
+    foreach (read_column_filters($side, $pfx . 'f_', $p) as $col => $v) {
+        $name = $labels[$col] ?? $col;
+        if (strcasecmp($v, '(blank)') === 0)           $out[] = "{$name} is blank";
+        elseif ($v[0] === '=' && strlen($v) > 1)       $out[] = "{$name} is " . substr($v, 1);
+        elseif ($v[0] === '!' && strlen($v) > 1)       $out[] = "{$name} does not contain " . substr($v, 1);
+        elseif ($v[0] === '>' || $v[0] === '<')         $out[] = "{$name} {$v}";
+        elseif ($col === 'value' && is_numeric(str_replace(',', '', $v))) $out[] = "{$name} is +/- {$v}";
+        else                                            $out[] = "{$name} contains {$v}";
+    }
+    return $out;
+}
+
+// The settings that apply to both sides at once - dates, money in or out.
+function describe_shared_filters(array $p)
+{
+    $out  = [];
+    $from = trim((string)($p['from'] ?? ''));
+    $to   = trim((string)($p['to'] ?? ''));
+    if ($from !== '' && $to !== '') $out[] = "dated {$from} to {$to}";
+    elseif ($from !== '')           $out[] = "dated from {$from}";
+    elseif ($to !== '')             $out[] = "dated up to {$to}";
+    $in  = !empty($p['in']);
+    $outF = !empty($p['out']);
+    if ($in && !$outF) $out[] = 'money in only';
+    if ($outF && !$in) $out[] = 'money out only';
+    return $out;
+}
+
 // Everything the screen filters on, built once and used by both the count and
 // the listing, so the figures at the top of a panel always describe the list
 // underneath it.

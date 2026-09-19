@@ -123,3 +123,7 @@ thead:has(.colfilters) th{position:static}
 .allnote{margin:0 0 .4rem;padding:.4rem .6rem;border:1px solid #e8d9a8;background:#fdf6e6;border-radius:6px;font-size:.85rem}
 .allnote .btn{margin-left:.4rem}
 .allnote [hidden]{display:none}
+
+/* the filters a manual match was made under, shown under its heading */
+.criteria{display:flex;flex-wrap:wrap;gap:.3rem 1.2rem;margin:.1rem 0 .5rem;padding:.35rem .6rem;
+  background:#f3f6fb;border:1px solid #d9e2ef;border-radius:6px;font-size:.82rem}

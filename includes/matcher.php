@@ -731,6 +731,46 @@ function run_rules($runId)
     return $perRule;
 }
 
+// --- what a manual match was made on ------------------------------------------
+
+// Has migration_012 been run?
+function criteria_ready()
+{
+    static $ok = null;
+    if ($ok === null) {
+        try { db()->query("SELECT criteria FROM rec_match_groups LIMIT 1"); $ok = true; }
+        catch (Throwable $e) { $ok = false; }
+    }
+    return $ok;
+}
+
+// Keep the filters that were on screen with the match. $c is
+// ['ledger' => [...], 'bank' => [...], 'both' => [...]], each a list of phrases.
+function save_match_criteria($groupId, array $c)
+{
+    if (!criteria_ready()) return;
+    $c = array_filter($c);
+    if (!$c) return;                      // nothing was filtered - nothing to say
+    db()->prepare("UPDATE rec_match_groups SET criteria = ? WHERE id = ?")
+        ->execute([json_encode($c, JSON_UNESCAPED_UNICODE), (int)$groupId]);
+}
+
+// The banner shown under a match's heading, or '' when it has none.
+function criteria_banner(array $g)
+{
+    $c = json_decode((string)($g['criteria'] ?? ''), true);
+    if (!is_array($c) || !$c) return '';
+    $parts = [];
+    foreach (['ledger', 'bank'] as $side) {
+        if (!empty($c[$side])) {
+            $parts[] = '<span><b>' . h(side_label($side)) . ':</b> ' . h(implode(', ', $c[$side])) . '</span>';
+        }
+    }
+    if (!empty($c['both'])) $parts[] = '<span><b>Both:</b> ' . h(implode(', ', $c['both'])) . '</span>';
+    return '<div class="criteria"><span class="muted">Filtered on when matched</span>'
+         . implode('', $parts) . '</div>';
+}
+
 // Does a group balance? (The golden rule, checked again before anything is committed.)
 function group_balances($ledgerTotal, $bankTotal, $signMode)
 {

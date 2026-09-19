@@ -197,6 +197,7 @@ render_header('Review ' . $run['run_ref']);
         <?= $ok ? '' : ' - does not balance' ?>
       </span>
     </header>
+    <?= criteria_banner($g) ?>
     <div class="sides">
       <?php foreach (['ledger' => side_label('ledger'), 'bank' => side_label('bank')] as $side => $label):
           $sideLines = array_values(array_filter($lines, fn($l) => $l['side'] === $side)); ?>

@@ -166,6 +166,14 @@ if (($_POST['action'] ?? '') === 'manual') {
         foreach ($lRows as $r) $ins->execute([$gid, 'ledger', $r['id'], $r['value']]);
         foreach ($bRows as $r) $ins->execute([$gid, 'bank',   $r['id'], $r['value']]);
 
+        // what was on screen when this was matched, so the match can say later
+        $was = (array)($_POST['back'] ?? []);
+        save_match_criteria($gid, [
+            'ledger' => $lRows ? describe_side_filters('ledger', $was) : [],
+            'bank'   => $bRows ? describe_side_filters('bank', $was) : [],
+            'both'   => describe_shared_filters($was),
+        ]);
+
         flash($oneSided
             ? 'Contra added to ' . $run['run_ref'] . ' - ' . (count($lRows) + count($bRows))
               . ' entries that cancel each other out. It will be committed when you finalise.'
