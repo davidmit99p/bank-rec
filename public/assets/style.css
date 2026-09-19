@@ -153,3 +153,13 @@ thead:has(.colfilters) th{position:static}
 .pivot td.pv-ok{color:var(--muted)}
 .pivot td.pv-tot{font-weight:700}
 .pivot td.pv-off:hover,.pivot td.pv-ok:hover{outline:2px solid var(--accent);outline-offset:-2px;cursor:pointer}
+
+/* pivot colours: port (left) red, starboard (right) green, both-but-different yellow */
+.pivot td.pv-left{background:#f9dcdc;color:#8a1f1f;font-weight:600}
+.pivot td.pv-right{background:#dcefdc;color:#1f5e2a;font-weight:600}
+.pivot td.pv-both{background:#fbf0c4;color:#6b5410;font-weight:600}
+.pivot td.pv-left:hover,.pivot td.pv-right:hover,.pivot td.pv-both:hover{outline:2px solid var(--accent);outline-offset:-2px;cursor:pointer}
+.pv-legend{display:flex;flex-wrap:wrap;gap:.3rem 1rem;align-items:center;margin:.2rem 0 .6rem}
+.pv-key{display:inline-block;width:1.1em;height:1.1em;border-radius:3px;border:1px solid var(--line);vertical-align:-.2em;margin-right:.3rem}
+.pv-key.pv-left{background:#f9dcdc}.pv-key.pv-right{background:#dcefdc}
+.pv-key.pv-both{background:#fbf0c4}.pv-key.pv-ok{background:var(--panel)}

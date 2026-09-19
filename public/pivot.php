@@ -247,7 +247,13 @@ $cellHtml = function ($cell, $href, $strong = false) use ($diffOf) {
     $ok = abs($d) < 0.005;
     $tip = side_label('ledger') . ' ' . money($cell['l'] ?? 0) . ' (' . (int)($cell['ln'] ?? 0) . ')  |  '
          . side_label('bank') . ' ' . money($cell['b'] ?? 0) . ' (' . (int)($cell['bn'] ?? 0) . ')';
-    return '<td class="num ' . ($ok ? 'pv-ok' : 'pv-off') . ($strong ? ' pv-tot' : '') . '" title="' . h($tip) . '">'
+    // Port and starboard: red when only the left file has anything in this
+    // slice, green when only the right does, yellow when both do but disagree.
+    // Only cells with a difference are coloured, so the problems stand out.
+    $hasL = !empty($cell['ln']);
+    $hasB = !empty($cell['bn']);
+    $kind = $ok ? 'pv-ok' : ($hasL && $hasB ? 'pv-both' : ($hasL ? 'pv-left' : 'pv-right'));
+    return '<td class="num ' . $kind . ($strong ? ' pv-tot' : '') . '" title="' . h($tip) . '">'
          . '<a href="' . h($href) . '">' . ($ok ? '&ndash;' : money($d)) . '</a></td>';
 };
 ?>
@@ -331,6 +337,11 @@ if (!$noFiles && !$spareCount): ?>
         <?= h(mb_strtolower($dims[$c]['label'])) ?> values<?php endif; ?>
       <?= $hide ? '&middot; the ones that fully agree are hidden' : '' ?>.
       Hover a cell for each side's total and count.</p>
+    <p class="small pv-legend">
+      <span class="pv-key pv-left"></span> only in <?= h(side_label('ledger')) ?>
+      <span class="pv-key pv-right"></span> only in <?= h(side_label('bank')) ?>
+      <span class="pv-key pv-both"></span> in both, but they differ
+      <span class="pv-key pv-ok"></span> agrees</p>
     <div class="scroll" style="max-height:70vh">
       <table class="pivot">
         <thead><tr>
