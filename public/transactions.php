@@ -500,6 +500,19 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
     </span>
   </div>
 
+  <?php
+    // the two totals below, taken one from the other, so nobody has to do it by
+    // hand - the same way round as the ticked difference and the matching rule
+    $gap = round($lTot - $bTot, 2);
+    if (abs($gap) < 0.005) $gap = 0.0;     // never "-0.00"
+  ?>
+  <p class="totgap">
+    <?= h(side_label('ledger')) ?> <span class="num"><?= money($lTot) ?></span>
+    <span class="muted">less</span> <?= h(side_label('bank')) ?> <span class="num"><?= money($bTot) ?></span>
+    <span class="balance <?= abs($gap) < 0.005 ? 'ok' : 'off' ?>">Difference <span class="num"><?= money($gap) ?></span></span>
+    <span class="muted small">for everything that fits the filters, on every page</span>
+  </p>
+
   <div class="sides">
 <?php
   $panels = [

@@ -166,3 +166,7 @@ thead:has(.colfilters) th{position:static}
 .pv-key{background:var(--panel)}
 .pv-key.pv-dash{background:linear-gradient(var(--muted),var(--muted)) center/45% 1.5px no-repeat,var(--panel)}
 .pv-legend.pv-list{flex-direction:column;align-items:flex-start;gap:.25rem}
+
+/* the two filtered totals taken one from the other, above the lists */
+.totgap{display:flex;flex-wrap:wrap;gap:.3rem .6rem;align-items:center;justify-content:center;margin:0 0 .75rem}
+.totgap .balance{padding:.25rem .6rem}
