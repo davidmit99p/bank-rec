@@ -681,7 +681,7 @@ function rule_test(array $rule)
             'total_l' => $sum($L),    'total_b' => $sum($B),
             'shape' => grouping_modes()[$rule['grouping']] ?? $rule['grouping'],
             'held'  => $held,
-            'groups' => null, 'balance' => null, 'off' => null, 'examples' => []];
+            'groups' => null, 'balance' => null, 'off' => null, 'examples' => [], 'too_big' => []];
 
     // The shapes that gather everything sharing something can be counted exactly:
     // how many keys are on both sides, and how many of those come to the same.
@@ -710,6 +710,11 @@ function rule_test(array $rule)
             $byB = $len ? group_by_period($bucket['B'], [], $len) : group_by_key($bucket['B'], [], $rule['key_right'] ?: 'extra1');
             foreach ($byL as $k => $ls) {
                 if (empty($byB[$k])) continue;
+                if (count($ls) > PERIOD_GROUP_CAP || count($byB[$k]) > PERIOD_GROUP_CAP) {
+                    // more lines than a run will group; named as the run names it
+                    $out['too_big'][] = $k . ($bucket['tag'] ? ' (' . ltrim($bucket['tag'], ' -') . ')' : '');
+                    continue;
+                }
                 $lt = $sum($ls);
                 $bt = $sum($byB[$k]);
                 $ok = group_balances($lt, $bt, $rule['sign_mode']);
@@ -754,6 +759,7 @@ function run_rules($runId)
     $perRule = [];
     foreach ($rules as $rule) {
         $made = 0;
+        $tooBig = [];          // keys or periods with more lines than we will group
         $allL = array_values(array_filter($ledger,
                 fn($r) => !isset($usedL[$r['id']]) && row_matches_side($r, $rule, 'l_')));
         $allB = array_values(array_filter($bank,
@@ -786,7 +792,10 @@ function run_rules($runId)
                 if (empty($byB[$k])) continue;              // needs both sides
                 $ls = $byL[$k];
                 $bs = $byB[$k];
-                if (count($ls) > PERIOD_GROUP_CAP || count($bs) > PERIOD_GROUP_CAP) continue;
+                if (count($ls) > PERIOD_GROUP_CAP || count($bs) > PERIOD_GROUP_CAP) {
+                    $tooBig[] = $k . $tag;
+                    continue;
+                }
 
                 $lTot = array_sum(array_map(fn($r) => (float)$r['value'], $ls));
                 $bTot = array_sum(array_map(fn($r) => (float)$r['value'], $bs));
@@ -809,7 +818,10 @@ function run_rules($runId)
                 $ls = $byL[$ym] ?? [];
                 $bs = $byB[$ym] ?? [];
                 if (!$ls || !$bs) continue;                    // needs both sides
-                if (count($ls) > PERIOD_GROUP_CAP || count($bs) > PERIOD_GROUP_CAP) continue;
+                if (count($ls) > PERIOD_GROUP_CAP || count($bs) > PERIOD_GROUP_CAP) {
+                    $tooBig[] = $ym . $tag;
+                    continue;
+                }
 
                 $lTot = array_sum(array_map(fn($r) => (float)$r['value'], $ls));
                 $bTot = array_sum(array_map(fn($r) => (float)$r['value'], $bs));
@@ -901,7 +913,7 @@ function run_rules($runId)
             }
         }
       }
-        $perRule[] = ['rule' => $rule, 'made' => $made];
+        $perRule[] = ['rule' => $rule, 'made' => $made, 'too_big' => $tooBig];
     }
     return $perRule;
 }

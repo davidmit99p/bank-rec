@@ -84,9 +84,22 @@ if (($_POST['action'] ?? '') === 'process') {
     $run = current_draft(true);
     $result = run_rules($run['id']);
     $made = array_sum(array_column($result, 'made'));
-    flash($made
+    $msg  = $made
         ? "{$made} matches suggested by the rules. Review them and finalise."
-        : 'The rules did not find anything new to match.');
+        : 'The rules did not find anything new to match.';
+    // A group larger than the cap is left alone. Say so, or it looks like
+    // nothing was there.
+    $big = [];
+    foreach ($result as $row) foreach ($row['too_big'] ?? [] as $k) $big[$k] = true;
+    if ($big) {
+        $names = array_slice(array_keys($big), 0, 5);
+        $msg .= ' ' . count($big) . (count($big) === 1 ? ' group was' : ' groups were')
+              . ' too big to suggest, at more than ' . number_format(PERIOD_GROUP_CAP)
+              . (PERIOD_GROUP_CAP === 1 ? ' line' : ' lines') . ' on one side: ' . implode(', ', $names)
+              . (count($big) > count($names) ? ' and others' : '')
+              . '. Narrow the rule so they come out smaller.';
+    }
+    flash($msg);
     header('Location: review.php?run=' . (int)$run['id']);
     exit;
 }

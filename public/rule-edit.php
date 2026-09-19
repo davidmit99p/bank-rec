@@ -265,9 +265,11 @@ form to say which <b>bank</b> lines they should be paired with. Leave a box on &
         Check that each side's key names the field that really holds it on that file, and that the two write
         it the same way.</p>
     <?php else: ?>
-      <p style="margin:.2rem 0"><b><?= number_format($test['groups']) ?></b> appear on both sides.
-        <b><?= number_format($test['balance']) ?></b> come to the same on each side and would be matched;
-        <b><?= number_format($test['off']) ?></b> do not, and would be left for you to look at.</p>
+      <p style="margin:.2rem 0"><b><?= number_format($test['groups']) ?></b>
+        <?= $test['groups'] === 1 ? 'appears' : 'appear' ?> on both sides.
+        <b><?= number_format($test['balance']) ?></b> <?= $test['balance'] === 1 ? 'comes' : 'come' ?>
+        to the same on each side and would be matched; <b><?= number_format($test['off']) ?></b>
+        <?= $test['off'] === 1 ? 'does' : 'do' ?> not, and would be left for you to look at.</p>
       <?php if ($test['examples']): ?>
         <?php
           // what the columns of the example table actually hold, said plainly:
@@ -300,6 +302,14 @@ form to say which <b>bank</b> lines they should be paired with. Leave a box on &
         <p class="small muted" style="margin:.3rem 0 0">The first few, as an example. The
           <?= h($agreeHead ? 'first two columns are' : 'first column is') ?> what the lines were grouped by.</p>
       <?php endif; ?>
+    <?php endif; ?>
+    <?php if ($test['too_big']): ?>
+      <p style="margin:.2rem 0"><b><?= number_format(count($test['too_big'])) ?></b>
+        <?= count($test['too_big']) === 1 ? 'group is' : 'groups are' ?> too big to suggest, at more than
+        <?= number_format(PERIOD_GROUP_CAP) ?> <?= PERIOD_GROUP_CAP === 1 ? 'line' : 'lines' ?> on one side,
+        and would be left alone:
+        <?= h(implode(', ', array_slice($test['too_big'], 0, 5))) ?><?= count($test['too_big']) > 5 ? ' and others' : '' ?>.
+        Narrow the rule &mdash; by account, say &mdash; so they come out smaller.</p>
     <?php endif; ?>
     <p class="small muted" style="margin:.5rem 0 0">Nothing has been saved or matched. Press
       <b><?= $id ? 'Save rule' : 'Create rule' ?></b> to keep the rule as it is on this page.</p>
