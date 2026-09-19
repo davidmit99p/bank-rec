@@ -127,3 +127,15 @@ thead:has(.colfilters) th{position:static}
 /* the filters a manual match was made under, shown under its heading */
 .criteria{display:flex;flex-wrap:wrap;gap:.3rem 1.2rem;margin:.1rem 0 .5rem;padding:.35rem .6rem;
   background:#f3f6fb;border:1px solid #d9e2ef;border-radius:6px;font-size:.82rem}
+
+/* the month picker: a drop-down of tick boxes, so several months can be chosen */
+.monthpick{position:relative}
+.monthpick summary{cursor:pointer;list-style:none;padding:.4rem .6rem;border:1px solid var(--line);
+  border-radius:6px;background:var(--panel);white-space:nowrap;min-width:9rem}
+.monthpick summary::after{content:' \25BE';color:var(--muted)}
+.monthpick summary.on{border-color:var(--accent);background:#fff8e6}
+.monthlist{position:absolute;z-index:20;top:100%;left:0;margin-top:.2rem;padding:.4rem .6rem;
+  background:var(--panel);border:1px solid var(--line);border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.12);
+  max-height:18rem;overflow:auto;min-width:12rem}
+.monthlist label{display:block;margin:.15rem 0;color:var(--ink);white-space:nowrap;font-weight:400}
+.monthbtns{display:flex;gap:.4rem;margin-top:.4rem;position:sticky;bottom:-.4rem;background:var(--panel);padding:.3rem 0}

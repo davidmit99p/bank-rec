@@ -35,6 +35,36 @@ function order_expression($sortKey, $dir)
     return "t.{$col} {$d}, t.id";
 }
 
+// --- months ------------------------------------------------------------------
+//
+// Any number of months, not necessarily next to each other. They arrive as
+// m[] from the month picker's tick boxes, or as one comma-separated "months"
+// setting everywhere else (links, hidden fields, redirects) because a flat
+// value travels more easily. The old single "month" still works too.
+function read_months(array $src)
+{
+    if (isset($src['m']) && is_array($src['m']))  $raw = $src['m'];
+    elseif (trim((string)($src['months'] ?? '')) !== '') $raw = explode(',', (string)$src['months']);
+    elseif (trim((string)($src['month'] ?? '')) !== '')  $raw = [(string)$src['month']];
+    else return [];
+    $out = [];
+    foreach ($raw as $ym) {
+        $ym = trim((string)$ym);
+        if (preg_match('/^\d{4}-\d{2}$/', $ym)) $out[$ym] = true;
+    }
+    $out = array_keys($out);
+    sort($out);
+    return $out;
+}
+
+// "January 2025, March 2025" - or a count once there are too many to list.
+function months_label(array $months, $max = 3)
+{
+    if (!$months) return 'Any month';
+    if (count($months) > $max) return count($months) . ' months';
+    return implode(', ', array_map(fn($ym) => date('M Y', strtotime($ym . '-01')), $months));
+}
+
 // --- a filter above every column ----------------------------------------------
 //
 // Which columns a side can be filtered on: the date, the description, whichever
@@ -125,6 +155,7 @@ function describe_side_filters($side, array $p)
 function describe_shared_filters(array $p)
 {
     $out  = [];
+    if ($m = read_months($p)) $out[] = 'months ' . months_label($m, 12);
     $from = trim((string)($p['from'] ?? ''));
     $to   = trim((string)($p['to'] ?? ''));
     if ($from !== '' && $to !== '') $out[] = "dated {$from} to {$to}";
@@ -140,7 +171,7 @@ function describe_shared_filters(array $p)
 // Everything the screen filters on, built once and used by both the count and
 // the listing, so the figures at the top of a panel always describe the list
 // underneath it.
-function item_filters($side, $q, $from, $to, $show, $sign, array $colf = [])
+function item_filters($side, $q, $from, $to, $show, $sign, array $colf = [], array $months = [])
 {
     $table = 'rec_txns';
     $where = [file_where($side, 't')];
@@ -167,6 +198,17 @@ function item_filters($side, $q, $from, $to, $show, $sign, array $colf = [])
         $where[] = $sql;
         foreach ($a as $x) $args[] = $x;
     }
+    // each month as a date range, so the date index still does the work
+    if ($months) {
+        $ranges = [];
+        foreach ($months as $ym) {
+            $first = $ym . '-01';
+            $ranges[] = '(t.txn_date BETWEEN ? AND ?)';
+            $args[] = $first;
+            $args[] = date('Y-m-t', strtotime($first));
+        }
+        $where[] = '(' . implode(' OR ', $ranges) . ')';
+    }
     if ($from !== '') { $where[] = 't.txn_date >= ?';      $args[] = $from; }
     if ($to !== '')   { $where[] = 't.txn_date <= ?';      $args[] = $to; }
 
@@ -190,9 +232,10 @@ function item_filters($side, $q, $from, $to, $show, $sign, array $colf = [])
 // How many, and what they come to - across everything matching, not just the
 // page on screen. The totals are what a reconciliation turns on, so they must
 // never describe only part of the list.
-function count_items($side, $q, $from, $to, $show = 'open', $sign = 'both', array $colf = [])
+function count_items($side, $q, $from, $to, $show = 'open', $sign = 'both', array $colf = [],
+                     array $months = [])
 {
-    [$table, $where, $args] = item_filters($side, $q, $from, $to, $show, $sign, $colf);
+    [$table, $where, $args] = item_filters($side, $q, $from, $to, $show, $sign, $colf, $months);
     $st = db()->prepare("SELECT COUNT(*) n,
                                 COALESCE(SUM(t.value), 0) total,
                                 COALESCE(SUM(CASE WHEN " . open_where('t') . " THEN 1 ELSE 0 END), 0) open_n
@@ -203,9 +246,9 @@ function count_items($side, $q, $from, $to, $show = 'open', $sign = 'both', arra
 
 // $limit of null means every row - which is what the download wants.
 function list_items($side, $q, $from, $to, $show = 'open', $sortKey = 'date', $dir = 'asc',
-                    $sign = 'both', $limit = null, $offset = 0, array $colf = [])
+                    $sign = 'both', $limit = null, $offset = 0, array $colf = [], array $months = [])
 {
-    [$table, $where, $args] = item_filters($side, $q, $from, $to, $show, $sign, $colf);
+    [$table, $where, $args] = item_filters($side, $q, $from, $to, $show, $sign, $colf, $months);
 
     // matched_here, matched_rule and run_ref all describe this reconciliation
     // only, which is why they come from the join rather than from the row

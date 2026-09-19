@@ -64,8 +64,9 @@ function filtered_ids($side)
     $out    = !empty($p['out']);
     $sign   = ($in === $out) ? 'both' : ($in ? 'in' : 'out');
     $colf   = read_column_filters($side, $pfx . 'f_', $p);
+    $months = read_months($p);
 
-    $rows  = list_items($side, $q, $from, $to, $show, 'date', 'asc', $sign, null, 0, $colf);
+    $rows  = list_items($side, $q, $from, $to, $show, 'date', 'asc', $sign, null, 0, $colf, $months);
     $total = array_sum(array_map(fn($r) => (float)$r['value'], $rows));
 
     $wantN     = (int)($_POST['all_' . $side . '_n'] ?? -1);
@@ -255,12 +256,11 @@ $from = trim($_GET['from'] ?? '');
 $to   = trim($_GET['to'] ?? '');
 $show = in_array($_GET['show'] ?? '', ['open', 'matched', 'both'], true) ? $_GET['show'] : 'open';
 
-// Picking a month is easier than typing two dates, so it simply fills them in.
-$month  = trim($_GET['month'] ?? '');
-$months = available_months();
-if ($month !== '' && isset($months[$month]) && ($b = month_bounds($month))) {
-    [$from, $to] = $b;
-}
+// Months: any number of them, picked from the ones there are transactions in.
+// They narrow the list alongside the date boxes rather than filling them in.
+$months    = available_months();
+$pickedM   = array_values(array_filter(read_months($_GET), fn($ym) => isset($months[$ym])));
+$monthsStr = implode(',', $pickedM);
 
 // Money in / money out. A first visit has no parameters at all, so both are on;
 // after that they say what they say. Turning both off is treated as both on.
@@ -319,8 +319,8 @@ $sizes   = [100, 250, 500, 1000];
 $perPage = in_array((int)($_GET['per'] ?? 0), $sizes, true) ? (int)$_GET['per'] : 250;
 
 // The counts and totals cover EVERYTHING matching the filters, not the page.
-$lCount = count_items('ledger', $lq, $from, $to, $show, $sign, $lf);
-$bCount = count_items('bank',   $bq, $from, $to, $show, $sign, $bf);
+$lCount = count_items('ledger', $lq, $from, $to, $show, $sign, $lf, $pickedM);
+$bCount = count_items('bank',   $bq, $from, $to, $show, $sign, $bf, $pickedM);
 $lTot   = (float)$lCount['total'];  $bTot = (float)$bCount['total'];
 $lOpen  = (int)$lCount['open_n'];   $bOpen = (int)$bCount['open_n'];
 
@@ -330,11 +330,11 @@ $lPage  = min(max(1, (int)($_GET['lp'] ?? 1)), $lPages);
 $bPage  = min(max(1, (int)($_GET['bp'] ?? 1)), $bPages);
 
 $ledger = list_items('ledger', $lq, $from, $to, $show, $lsort, $ldir, $sign,
-                     $perPage, ($lPage - 1) * $perPage, $lf);
+                     $perPage, ($lPage - 1) * $perPage, $lf, $pickedM);
 $bank   = list_items('bank',   $bq, $from, $to, $show, $bsort, $bdir, $sign,
-                     $perPage, ($bPage - 1) * $perPage, $bf);
+                     $perPage, ($bPage - 1) * $perPage, $bf, $pickedM);
 
-$back   = array_filter(['lq' => $lq, 'bq' => $bq, 'month' => $month,
+$back   = array_filter(['lq' => $lq, 'bq' => $bq, 'months' => $monthsStr,
                         'from' => $from, 'to' => $to, 'show' => $show,
                         'per' => $perPage, 'lp' => $lPage, 'bp' => $bPage,
                         'in' => $wantIn ? '1' : '', 'out' => $wantOut ? '1' : '',
@@ -405,7 +405,7 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
           ['searchB', ['lq' => $lq, 'ls' => $lsort, 'ld' => $ldir, 'bs' => $bsort, 'bd' => $bdir] + $lfFlat]]
          as [$id, $others]): ?>
   <form method="get" id="<?= $id ?>" style="display:none">
-    <?php foreach ($others + ['month' => $month, 'from' => $from, 'to' => $to, 'show' => $show,
+    <?php foreach ($others + ['months' => $monthsStr, 'from' => $from, 'to' => $to, 'show' => $show,
                               'per' => $perPage] as $k => $v): ?>
       <input type="hidden" name="<?= h($k) ?>" value="<?= h($v) ?>">
     <?php endforeach; ?>
@@ -421,13 +421,21 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
     <input type="hidden" name="<?= h($k) ?>" value="<?= h($v) ?>">
   <?php endforeach; ?>
   <?php if ($months): ?>
-  <div><label>Month</label>
-    <select name="month" onchange="this.form.submit()">
-      <option value="">Any month</option>
-      <?php foreach ($months as $ym => $label): ?>
-        <option value="<?= h($ym) ?>"<?= $month === $ym ? ' selected' : '' ?>><?= h($label) ?></option>
-      <?php endforeach; ?>
-    </select></div>
+  <div><label>Months</label>
+    <details class="monthpick">
+      <summary<?= $pickedM ? ' class="on"' : '' ?>><?= h(months_label($pickedM)) ?></summary>
+      <div class="monthlist">
+        <?php foreach ($months as $ym => $label): ?>
+          <label><input type="checkbox" name="m[]" value="<?= h($ym) ?>" style="width:auto"
+            <?= in_array($ym, $pickedM, true) ? 'checked' : '' ?>> <?= h($label) ?></label>
+        <?php endforeach; ?>
+        <div class="monthbtns">
+          <button class="btn small" type="submit">Apply</button>
+          <button class="btn ghost small" type="button"
+            onclick="this.closest('.monthlist').querySelectorAll('input').forEach(function(c){c.checked=false})">Untick all</button>
+        </div>
+      </div>
+    </details></div>
   <?php endif; ?>
   <div><label>Dated from</label><input type="date" name="from" value="<?= h($from) ?>"></div>
   <div><label>To</label><input type="date" name="to" value="<?= h($to) ?>"></div>
@@ -523,7 +531,7 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
         <?php
           // the download takes the same filters as the screen, so what comes out
           // is what you are looking at
-          $dl = ['side' => $side, 'q' => $val, 'from' => $from, 'to' => $to,
+          $dl = ['side' => $side, 'q' => $val, 'from' => $from, 'to' => $to, 'months' => $monthsStr,
                  'show' => $show, 'sort' => $sortKey, 'dir' => $dir];
           foreach ($colf as $k => $v) $dl['f_' . $k] = $v;
           if ($wantIn)  $dl['in']  = 1;
