@@ -25,6 +25,7 @@ function render_header($title = '')
         'rules.php'        => '2. Rules',
         'transactions.php' => '3. Transactions',
         'summary.php'      => 'Summary',
+        'pivot.php'        => 'Pivot',
         'matches.php'      => 'Matches',
         'trace.php'        => 'Trace',
         'runs.php'         => 'Runs',
