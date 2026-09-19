@@ -153,7 +153,7 @@ or undo a whole match.</p>
         <?= is_numeric($g['rule_ref']) ? 'Rule ' . h($g['rule_ref']) : h(ucfirst($g['rule_ref'])) ?></span>
       <b>Match <?= (int)$g['group_no'] ?></b>
       <span class="muted small"><?= h($g['rule_name']) ?> &middot; <?= h($g['run_ref']) ?>
-        &middot; <?= h(substr((string)$g['finalised_at'], 0, 10)) ?></span>
+        &middot; <?= h(substr((string)$g['finalised_at'], 0, 16)) ?></span>
       <span class="balance ok" style="margin-left:auto">
         <?= $isContra ? 'cancels out to 0.00' : money($g['ledger_total']) ?></span>
       <span class="balance off" data-warn style="display:none">part-selection does not balance</span>
