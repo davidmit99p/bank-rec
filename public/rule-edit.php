@@ -223,6 +223,10 @@ form to say which <b>bank</b> lines they should be paired with. Leave a box on &
     <h2 style="margin-top:0">What this rule finds</h2>
     <p style="margin:.2rem 0">Of the items still to be matched in
       <b><?= h(current_rec()['name'] ?? 'this reconciliation') ?></b>, the conditions fit:</p>
+    <?php if ($test['held']): ?>
+      <p class="small muted" style="margin:.2rem 0"><?= number_format($test['held']) ?> lines are left out of
+        this because they are already in a run you have not finalised. Process would skip them too.</p>
+    <?php endif; ?>
     <ul style="margin:.2rem 0 .6rem">
       <li><b><?= h(side_label('ledger')) ?>:</b> <?= number_format($test['fit_l']) ?> of
         <?= number_format($test['open_l']) ?> open lines, totalling <?= money($test['total_l']) ?></li>
@@ -230,6 +234,10 @@ form to say which <b>bank</b> lines they should be paired with. Leave a box on &
         <?= number_format($test['open_b']) ?> open lines, totalling <?= money($test['total_b']) ?></li>
     </ul>
     <?php if ($none): ?>
+      <?php if ($test['held'] && !$test['open_l'] && !$test['open_b']): ?>
+        <p style="margin:.2rem 0"><b>Nothing would be matched</b>, because everything is already in a run you
+          have not finalised. Finish that run, or discard it, and try again.</p>
+      <?php else: ?>
       <?php
         $empty = !$test['fit_l'] && !$test['fit_b']
                ? 'Neither side has anything left once its conditions have been applied.'
@@ -239,6 +247,7 @@ form to say which <b>bank</b> lines they should be paired with. Leave a box on &
       <p style="margin:.2rem 0"><b>Nothing would be matched.</b> <?= h($empty) ?> Look at the conditions there &mdash; a code written differently from the
         file, or a range of periods that misses the ones in the file, will empty a side. The
         <a href="transactions.php">Transactions</a> screen shows the values as they really are.</p>
+      <?php endif; ?>
     <?php elseif ($test['groups'] === null): ?>
       <p style="margin:.2rem 0">This shape pairs lines up one by one, so what it matches depends on the
         dates and amounts as well. Press <b>Process rules</b> on the Transactions screen to see the
@@ -260,17 +269,36 @@ form to say which <b>bank</b> lines they should be paired with. Leave a box on &
         <b><?= number_format($test['balance']) ?></b> come to the same on each side and would be matched;
         <b><?= number_format($test['off']) ?></b> do not, and would be left for you to look at.</p>
       <?php if ($test['examples']): ?>
+        <?php
+          // what the columns of the example table actually hold, said plainly:
+          // the key is a field on each file, and the agreeing values are another
+          $lenNow  = period_len($r['grouping']);
+          $keyHead = $lenNow === 10 ? 'Day' : ($lenNow === 7 ? 'Month' : 'Key: '
+                     . (file_extra_labels(side_file_id('ledger'))[$r['key_left']] ?? 'the key field'));
+          $agreeHead = '';
+          if ($pairs = agree_pairs($r)) {
+              $ln = file_extra_labels(side_file_id('ledger'));
+              $agreeHead = implode(' / ', array_map(fn($pr) => $ln[$pr[0]] ?? $pr[0], $pairs));
+          }
+        ?>
         <table style="width:auto;background:var(--panel);border-radius:6px">
-          <thead><tr><th></th><th class="num"><?= h(side_label('ledger')) ?></th>
+          <thead><tr>
+            <?php if ($agreeHead): ?><th><?= h($agreeHead) ?></th><?php endif; ?>
+            <th><?= h($keyHead) ?></th>
+            <th class="num"><?= h(side_label('ledger')) ?></th>
             <th class="num"><?= h(side_label('bank')) ?></th><th></th></tr></thead>
           <tbody>
-          <?php foreach ($test['examples'] as [$k, $lt, $bt, $ok]): ?>
-            <tr><td><?= h($k) ?></td><td class="num"><?= money($lt) ?></td><td class="num"><?= money($bt) ?></td>
-              <td class="small <?= $ok ? '' : 'neg' ?>"><?= $ok ? 'matches' : 'does not balance' ?></td></tr>
+          <?php foreach ($test['examples'] as $e): ?>
+            <tr>
+              <?php if ($agreeHead): ?><td><?= h($e['agree']) ?></td><?php endif; ?>
+              <td><?= h($e['key']) ?></td>
+              <td class="num"><?= money($e['l']) ?></td><td class="num"><?= money($e['b']) ?></td>
+              <td class="small <?= $e['ok'] ? '' : 'neg' ?>"><?= $e['ok'] ? 'matches' : 'does not balance' ?></td></tr>
           <?php endforeach; ?>
           </tbody>
         </table>
-        <p class="small muted" style="margin:.3rem 0 0">The first few, as an example.</p>
+        <p class="small muted" style="margin:.3rem 0 0">The first few, as an example. The
+          <?= h($agreeHead ? 'first two columns are' : 'first column is') ?> what the lines were grouped by.</p>
       <?php endif; ?>
     <?php endif; ?>
     <p class="small muted" style="margin:.5rem 0 0">Nothing has been saved or matched. Press

@@ -658,6 +658,20 @@ function rule_test(array $rule)
 {
     $allL = load_open('ledger');
     $allB = load_open('bank');
+
+    // Items already spoken for by an open run are skipped by Process, so the
+    // test skips them too - otherwise it promises more than a run would deliver.
+    $draft = db()->query("SELECT id FROM rec_runs WHERE status = 'draft'" . rec_and()
+                         . " ORDER BY id DESC LIMIT 1")->fetchColumn();
+    $usedL = $draft ? ids_used_in_run((int)$draft, 'ledger') : [];
+    $usedB = $draft ? ids_used_in_run((int)$draft, 'bank')   : [];
+    $held  = 0;
+    foreach ([[$allL, $usedL], [$allB, $usedB]] as [$rows, $used]) {
+        foreach ($rows as $row) if (isset($used[$row['id']])) $held++;
+    }
+    $allL = array_values(array_filter($allL, fn($r) => !isset($usedL[$r['id']])));
+    $allB = array_values(array_filter($allB, fn($r) => !isset($usedB[$r['id']])));
+
     $L = array_values(array_filter($allL, fn($r) => row_matches_side($r, $rule, 'l_')));
     $B = array_values(array_filter($allB, fn($r) => row_matches_side($r, $rule, 'b_')));
     $sum = fn($rows) => array_sum(array_map(fn($r) => (float)$r['value'], $rows));
@@ -666,6 +680,7 @@ function rule_test(array $rule)
             'fit_l'  => count($L),    'fit_b'  => count($B),
             'total_l' => $sum($L),    'total_b' => $sum($B),
             'shape' => grouping_modes()[$rule['grouping']] ?? $rule['grouping'],
+            'held'  => $held,
             'groups' => null, 'balance' => null, 'off' => null, 'examples' => []];
 
     // The shapes that gather everything sharing something can be counted exactly:
@@ -697,12 +712,12 @@ function rule_test(array $rule)
                 if (empty($byB[$k])) continue;
                 $lt = $sum($ls);
                 $bt = $sum($byB[$k]);
-                if (group_balances($lt, $bt, $rule['sign_mode'])) {
-                    $on++;
-                    if (count($out['examples']) < 5) $out['examples'][] = [$k, $lt, $bt, true];
-                } else {
-                    $off++;
-                    if (count($out['examples']) < 5) $out['examples'][] = [$k, $lt, $bt, false];
+                $ok = group_balances($lt, $bt, $rule['sign_mode']);
+                $ok ? $on++ : $off++;
+                if (count($out['examples']) < 5) {
+                    // the tag carries the agreeing values, as " - 6715"
+                    $out['examples'][] = ['key' => $k, 'agree' => ltrim((string)$bucket['tag'], ' -'),
+                                          'l' => $lt, 'b' => $bt, 'ok' => $ok];
                 }
             }
         }
