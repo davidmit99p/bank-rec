@@ -43,7 +43,8 @@ function render_header($title = '')
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/style.css">
+<?php // the file's date on the link, so browsers fetch it afresh whenever it changes ?>
+<link rel="stylesheet" href="assets/style.css?v=<?= (int)@filemtime(__DIR__ . '/../public/assets/style.css') ?>">
 </head>
 <body>
 <header class="site-header">
