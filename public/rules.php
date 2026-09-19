@@ -53,10 +53,12 @@ function side_summary(array $r, $p)
     // conditions on the file's own fields - "Code is 4010"
     if (field_conds_ready()) {
         $named = extra_labels($p === 'l_' ? 'ledger' : 'bank');
-        foreach (field_conds($r, $p) as [$key, $op, $val]) {
+        foreach (field_conds($r, $p) as [$key, $op, $val, $val2]) {
             $name = $named[$key] ?? ('spare field ' . substr($key, 5));
-            $bits[] = $name . ' ' . (field_ops()[$op] ?? $op)
-                    . (in_array($op, ['blank', 'not_blank'], true) ? '' : ' "' . $val . '"');
+            $said = $name . ' ' . (field_ops()[$op] ?? $op);
+            if ($op === 'between')                                    $said .= ' "' . $val . '" and "' . $val2 . '"';
+            elseif (!in_array($op, ['blank', 'not_blank'], true))     $said .= ' "' . $val . '"';
+            $bits[] = $said;
         }
     }
     return $bits ? implode(', ', $bits) : 'any transaction';

@@ -28,7 +28,8 @@ foreach (['l_', 'b_'] as $p) {
         $p.'date_op' => 'any',  $p.'date_val' => '',  $p.'date_val2' => '',
     ];
     for ($i = 1; $i <= FIELD_COND_MAX; $i++) {
-        $blank += [$p.'f'.$i.'_key' => '', $p.'f'.$i.'_op' => 'any', $p.'f'.$i.'_val' => ''];
+        $blank += [$p.'f'.$i.'_key' => '', $p.'f'.$i.'_op' => 'any',
+                   $p.'f'.$i.'_val' => '', $p.'f'.$i.'_val2' => ''];
     }
 }
 $r = $rule ?: $blank;
@@ -42,8 +43,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $cols[] = $p . $c;
         }
         if (field_conds_ready()) {
+            $bits = field_range_ready() ? ['_key', '_op', '_val', '_val2'] : ['_key', '_op', '_val'];
             for ($i = 1; $i <= FIELD_COND_MAX; $i++) {
-                foreach (['_key', '_op', '_val'] as $c) $cols[] = $p . 'f' . $i . $c;
+                foreach ($bits as $c) $cols[] = $p . 'f' . $i . $c;
             }
         }
     }
@@ -88,6 +90,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $vals[$base . '_key'] = $ok ? $key : null;
                 $vals[$base . '_op']  = $ok ? $op  : null;
                 $vals[$base . '_val'] = $ok ? $vals[$base . '_val'] : null;
+                if (field_range_ready()) $vals[$base . '_val2'] = $ok ? $vals[$base . '_val2'] : null;
             }
         }
     }
@@ -165,10 +168,17 @@ function side_form(array $r, $p)
           <?php $sel($b . '_op', field_ops(), $r[$b.'_op'] ?: 'any'); ?>
           <input type="text" name="<?= $b ?>_val" value="<?= h((string)($r[$b.'_val'] ?? '')) ?>"
                  placeholder="e.g. 4010" style="flex:2">
+          <?php if (field_range_ready()): ?>
+            <input type="text" name="<?= $b ?>_val2" value="<?= h((string)($r[$b.'_val2'] ?? '')) ?>"
+                   placeholder="and (only for is between)">
+          <?php endif; ?>
         </div>
       <?php endfor; ?>
       <p class="small muted" style="margin:.1rem 0 0">Capitals and spaces at either end are ignored.
-        Leave the field on &ldquo;not used&rdquo; to ignore it.</p>
+        Leave the field on &ldquo;not used&rdquo; to ignore it. <b>Is one of</b> takes a list separated by
+        commas, such as 2026/01,2026/02,2026/03.<?php if (field_range_ready()): ?> <b>Is between</b> uses
+        both boxes and goes by the order the values would sort in, so 2026/01 to 2026/06 takes in
+        2026/03.<?php endif; ?></p>
     <?php endif; ?>
     <?php
 }
@@ -184,6 +194,12 @@ form to say which <b>bank</b> lines they should be paired with. Leave a box on &
     <p style="margin:0"><b>One small database change is still to run.</b> In phpMyAdmin, run
       <code>sql/migration_014_field_conditions.sql</code> against <code>entigy_recon</code>. Until then a rule
       can be held to a description, a value and a date, but not to a particular code or period.</p>
+  </div>
+<?php elseif (!field_range_ready()): ?>
+  <div class="panel" style="background:#fdf6e6;border-color:#e8d9a8">
+    <p style="margin:0"><b>One small database change is still to run.</b> In phpMyAdmin, run
+      <code>sql/migration_015_field_condition_range.sql</code> against <code>entigy_recon</code>. Until then a
+      field condition can say <b>is one of</b> but not <b>is between</b>, which needs a second box.</p>
   </div>
 <?php endif; ?>
 

@@ -121,11 +121,14 @@ function test_date($date, $op, $a, $b)
 // thing can be a different spare field on each file.
 const FIELD_COND_MAX = 2;
 
-// The tests offered. The description ones, plus "is blank" - a line with
-// nothing in the field is a real case and worth being able to pick out.
+// The tests offered. The description ones, plus a list, a stretch, and blank -
+// a line with nothing in the field is a real case and worth picking out.
+// "Is between" only appears once migration_015 has given it a second box.
 function field_ops()
 {
-    return desc_ops() + ['blank' => 'is blank', 'not_blank' => 'is not blank'];
+    $out = desc_ops() + ['one_of' => 'is one of (separated by commas)'];
+    if (field_range_ready()) $out += ['between' => 'is between'];
+    return $out + ['blank' => 'is blank', 'not_blank' => 'is not blank'];
 }
 
 // Has migration_014 been run?
@@ -139,37 +142,69 @@ function field_conds_ready()
     return $ok;
 }
 
-// The conditions one side of a rule has filled in: [[field, test, value], ...].
-// A condition needs a field, and a value unless the test is about blankness.
+// And migration_015, which added the second box "is between" needs?
+function field_range_ready()
+{
+    static $ok = null;
+    if ($ok === null) {
+        try { db()->query("SELECT l_f1_val2 FROM rec_rules LIMIT 1"); $ok = true; }
+        catch (Throwable $e) { $ok = false; }
+    }
+    return $ok;
+}
+
+// The conditions one side of a rule has filled in:
+// [[field, test, value, second value], ...]. A condition needs a field, and a
+// value unless the test is about blankness.
 function field_conds(array $rule, $p)
 {
     $out = [];
     for ($i = 1; $i <= FIELD_COND_MAX; $i++) {
-        $key = trim((string)($rule[$p . 'f' . $i . '_key'] ?? ''));
-        $op  = trim((string)($rule[$p . 'f' . $i . '_op'] ?? ''));
-        $val = (string)($rule[$p . 'f' . $i . '_val'] ?? '');
+        $key  = trim((string)($rule[$p . 'f' . $i . '_key'] ?? ''));
+        $op   = trim((string)($rule[$p . 'f' . $i . '_op'] ?? ''));
+        $val  = (string)($rule[$p . 'f' . $i . '_val'] ?? '');
+        $val2 = (string)($rule[$p . 'f' . $i . '_val2'] ?? '');
         if ($key === '' || $op === '' || $op === 'any') continue;
         if (trim($val) === '' && $op !== 'blank' && $op !== 'not_blank') continue;
-        $out[] = [$key, $op, $val];
+        if ($op === 'between' && trim($val2) === '') continue;      // half a stretch is no stretch
+        $out[] = [$key, $op, $val, $val2];
     }
     return $out;
 }
 
-// One condition against one transaction.
-function test_field($value, $op, $want)
+// One condition against one transaction. Everything is compared trimmed and
+// without regard to capitals, as the rest of the matching does.
+//
+// "Is between" compares as text, which is what a period written 2026/01 wants:
+// 2026/01 to 2026/06 takes in 2026/03. Either way round works.
+function test_field($value, $op, $want, $want2 = '')
 {
     $v = trim((string)$value);
     if ($op === 'blank')     return $v === '';
     if ($op === 'not_blank') return $v !== '';
+    if ($op === 'one_of') {
+        foreach (explode(',', (string)$want) as $one) {
+            $one = trim($one);
+            if ($one !== '' && mb_strtoupper($v) === mb_strtoupper($one)) return true;
+        }
+        return false;
+    }
+    if ($op === 'between') {
+        $a = mb_strtoupper(trim((string)$want));
+        $b = mb_strtoupper(trim((string)$want2));
+        if ($a > $b) [$a, $b] = [$b, $a];
+        $u = mb_strtoupper($v);
+        return $u >= $a && $u <= $b;
+    }
     return test_desc($v, $op, $want);
 }
 
 // Does this transaction meet one side of a rule? $p is 'l_' (ledger) or 'b_' (bank).
 function row_matches_side(array $row, array $rule, $p)
 {
-    foreach (field_conds($rule, $p) as [$key, $op, $val]) {
+    foreach (field_conds($rule, $p) as [$key, $op, $val, $val2]) {
         if (!array_key_exists($key, $row)) return false;      // the file has no such field
-        if (!test_field($row[$key], $op, $val)) return false;
+        if (!test_field($row[$key], $op, $val, $val2)) return false;
     }
     return test_desc($row['description'], $rule[$p . 'desc_op'],  $rule[$p . 'desc_val'])
         && test_value($row['value'],      $rule[$p . 'value_op'], $rule[$p . 'value_val'], $rule[$p . 'value_val2'])
