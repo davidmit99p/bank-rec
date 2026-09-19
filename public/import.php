@@ -234,7 +234,10 @@ render_header('Import');
           <select name="sheet" onchange="this.form.querySelector('[value=repreview]').click()" style="width:auto">
             <?php foreach ($preview['sheets'] as $sh): ?>
               <option value="<?= h($sh['name']) ?>"<?= $sh['name'] === $preview['sheet'] ? ' selected' : '' ?>>
-                <?= h($sh['name']) ?> (about <?= number_format($sh['rows']) ?> rows)</option>
+                <?= h($sh['name']) ?> (<?= $sh['name'] === $preview['sheet']
+                    // the sheet being read: the real count, headings left out
+                    ? number_format($preview['usable']) . ' data rows'
+                    : number_format($sh['rows']) . ' rows including any headings' ?>)</option>
             <?php endforeach; ?>
           </select>
           <p class="small muted" style="margin:.3rem 0 0">The biggest sheet is picked to start with. If
