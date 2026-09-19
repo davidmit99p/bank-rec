@@ -49,7 +49,7 @@ $out = fopen('php://output', 'w');
 echo "\xEF\xBB\xBF";   // so Excel opens it as UTF-8 rather than guessing
 
 $head = ['Date', 'Description', 'Value', 'Status', 'Rule', 'Run',
-         'Split from', 'Source file', 'Reference'];
+         'Split from', 'Source file', 'Line no.'];   // the system's own number for the line
 foreach (extra_labels($side) as $label) $head[] = $label;
 if (extras_ready()) $head[] = 'Notes';
 fputcsv($out, $head);
