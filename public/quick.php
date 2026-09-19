@@ -159,9 +159,13 @@ render_header('Quick reconciliation');
     </div>
 
     <h2 style="margin:1rem 0 .3rem">Fields</h2>
-    <p class="small muted" style="margin-top:0">Which column of each file goes into each field. The date and amount
-      are needed from both. A field can come from one file only. Drag the extra fields (or use the arrows) into
-      the order you want them shown on the Transactions screen.</p>
+    <p class="small muted" style="margin-top:0">Use the drop-downs to pick which column of each file goes into each
+      field. For example, Date might be column 2 in the first file and column 1 in the second. Date and Amount are
+      needed from both files; the others can come from just one. Use <b>+ Add a field</b> for anything else you want
+      to see, such as a reference.</p>
+    <p class="small muted" style="margin-top:0">To change the order the extra fields are shown on the Transactions
+      screen, drag them by the ⠿ handle or use the arrows. That only changes the order, not which columns are linked.
+      Date, Amount and Description always stay at the top.</p>
     <div class="scroll">
       <table class="qgrid" id="qGrid"></table>
     </div>
@@ -206,9 +210,12 @@ render_header('Quick reconciliation');
   @media (max-width: 1100px) { .qsides { grid-template-columns: 1fr; } }
   .qgrid td, .qgrid th { vertical-align: middle; }
   .qgrid select, .qgrid input { width: 100%; min-width: 11rem; }
-  .qgrid tr.spare td.qh { cursor: grab; color: var(--muted); white-space: nowrap; }
+  .qgrid tr.spare td.qh { color: var(--muted); white-space: nowrap; }
+  .qgrip { cursor: grab; font-size: 1.2rem; padding: 0 .3rem; touch-action: none; user-select: none; }
+  .qgrip:active { cursor: grabbing; }
   .qgrid tr.dragging { opacity: .4; }
   .qgrid tr.over td { border-top: 2px solid var(--accent); }
+  .qgrid tr.under td { border-bottom: 2px solid var(--accent); }
   .qarrow { border: 0; background: none; cursor: pointer; color: var(--muted); padding: 0 .15rem; }
   .qraw td, .qraw th, .qmapped td, .qmapped th { white-space: nowrap; font-size: .8rem; }
   .qraw tr.head td { background: #eef3fb; font-weight: 600; }
@@ -273,7 +280,7 @@ render_header('Quick reconciliation');
   }
 
   // --- the grid ------------------------------------------------------------
-  var dragFrom = null;
+
   function drawGrid() {
     var t = document.getElementById('qGrid');
     t.innerHTML = '';
@@ -289,20 +296,15 @@ render_header('Quick reconciliation');
       var tr = el('tr', {'class': f.fixed ? 'fixed' : 'spare'});
       var h = el('td', {'class': 'qh'});
       if (!f.fixed) {
-        h.appendChild(el('span', {title: 'Drag to reorder'}, '⠇ '));
+        var grip = el('span', {'class': 'qgrip', title: 'Drag up or down to change the order'}, '⠿');
         var up = el('button', {type: 'button', 'class': 'qarrow', title: 'Move up'}, '▲');
         var dn = el('button', {type: 'button', 'class': 'qarrow', title: 'Move down'}, '▼');
         up.disabled = fields[idx - 1] && fields[idx - 1].fixed;
         dn.disabled = idx === fields.length - 1;
         up.onclick = function () { move(idx, idx - 1); };
         dn.onclick = function () { move(idx, idx + 1); };
-        h.appendChild(up); h.appendChild(dn);
-        tr.draggable = true;
-        tr.addEventListener('dragstart', function (e) { dragFrom = idx; tr.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; });
-        tr.addEventListener('dragend', function () { tr.classList.remove('dragging'); });
-        tr.addEventListener('dragover', function (e) { if (dragFrom !== null) { e.preventDefault(); tr.classList.add('over'); } });
-        tr.addEventListener('dragleave', function () { tr.classList.remove('over'); });
-        tr.addEventListener('drop', function (e) { e.preventDefault(); tr.classList.remove('over'); if (dragFrom !== null) move(dragFrom, idx); dragFrom = null; });
+        h.appendChild(grip); h.appendChild(up); h.appendChild(dn);
+        grip.addEventListener('pointerdown', function (e) { startDrag(e, grip, tr, idx); });
       }
       tr.appendChild(h);
       var lab = el('td');
@@ -331,6 +333,44 @@ render_header('Quick reconciliation');
     document.getElementById('qAddNote').textContent = spares >= MAX_SPARES
       ? 'That is the most there is room for (' + MAX_SPARES + ').'
       : 'Room for ' + (MAX_SPARES - spares) + ' more.';
+  }
+  // Dragging by the grip. Done with pointer events rather than the browser's
+  // own drag-and-drop, which is unreliable on table rows.
+  function startDrag(e, grip, tr, from) {
+    e.preventDefault();
+    grip.setPointerCapture(e.pointerId);
+    tr.classList.add('dragging');
+    var target = null;
+    function rowAt(y) {
+      var rows = document.querySelectorAll('#qGrid tbody tr'), hit = null;
+      rows.forEach(function (r, i) {
+        var b = r.getBoundingClientRect();
+        if (i >= 3 && y >= b.top && y < b.bottom) hit = i;
+      });
+      if (hit === null && rows.length > 3) {
+        if (y < rows[3].getBoundingClientRect().top) hit = 3;
+        else if (y >= rows[rows.length - 1].getBoundingClientRect().bottom) hit = rows.length - 1;
+      }
+      return hit;
+    }
+    function onMove(ev) {
+      target = rowAt(ev.clientY);
+      document.querySelectorAll('#qGrid tbody tr').forEach(function (r, i) {
+        r.classList.toggle('over', i === target && target < from);
+        r.classList.toggle('under', i === target && target > from);
+      });
+    }
+    function onUp() {
+      grip.removeEventListener('pointermove', onMove);
+      grip.removeEventListener('pointerup', onUp);
+      grip.removeEventListener('pointercancel', onUp);
+      tr.classList.remove('dragging');
+      document.querySelectorAll('#qGrid tr.over, #qGrid tr.under').forEach(function (r) { r.classList.remove('over', 'under'); });
+      if (target !== null && target !== from) move(from, target);
+    }
+    grip.addEventListener('pointermove', onMove);
+    grip.addEventListener('pointerup', onUp);
+    grip.addEventListener('pointercancel', onUp);
   }
   function move(from, to) {
     if (to < 3 || to >= fields.length || from === to) return;     // the three fixed fields stay on top
