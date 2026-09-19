@@ -64,7 +64,7 @@ function filtered_ids($side)
     $out    = !empty($p['out']);
     $sign   = ($in === $out) ? 'both' : ($in ? 'in' : 'out');
     $colf   = read_column_filters($side, $pfx . 'f_', $p);
-    $months = read_months($p);
+    $months = read_side_period($side, $p);
 
     $rows  = list_items($side, $q, $from, $to, $show, 'date', 'asc', $sign, null, 0, $colf, $months);
     $total = array_sum(array_map(fn($r) => (float)$r['value'], $rows));
@@ -258,9 +258,11 @@ $show = in_array($_GET['show'] ?? '', ['open', 'matched', 'both'], true) ? $_GET
 
 // Months: any number of them, picked from the ones there are transactions in.
 // They narrow the list alongside the date boxes rather than filling them in.
-$months    = available_months();
-$pickedM   = array_values(array_filter(read_months($_GET), fn($ym) => isset($months[$ym])));
-$monthsStr = implode(',', $pickedM);
+// Each side goes by its transaction date or by a field of its own, such as an
+// accounting period - see read_side_period().
+$lPer = read_side_period('ledger', $_GET);
+$bPer = read_side_period('bank',   $_GET);
+$perParams = side_period_params('ledger', $lPer) + side_period_params('bank', $bPer);
 
 // Money in / money out. A first visit has no parameters at all, so both are on;
 // after that they say what they say. Turning both off is treated as both on.
@@ -322,8 +324,8 @@ $sizes   = [100, 250, 500, 1000];
 $perPage = in_array((int)($_GET['per'] ?? 0), $sizes, true) ? (int)$_GET['per'] : 250;
 
 // The counts and totals cover EVERYTHING matching the filters, not the page.
-$lCount = count_items('ledger', $lq, $from, $to, $show, $sign, $lf, $pickedM);
-$bCount = count_items('bank',   $bq, $from, $to, $show, $sign, $bf, $pickedM);
+$lCount = count_items('ledger', $lq, $from, $to, $show, $sign, $lf, $lPer);
+$bCount = count_items('bank',   $bq, $from, $to, $show, $sign, $bf, $bPer);
 $lTot   = (float)$lCount['total'];  $bTot = (float)$bCount['total'];
 $lOpen  = (int)$lCount['open_n'];   $bOpen = (int)$bCount['open_n'];
 
@@ -333,15 +335,15 @@ $lPage  = min(max(1, (int)($_GET['lp'] ?? 1)), $lPages);
 $bPage  = min(max(1, (int)($_GET['bp'] ?? 1)), $bPages);
 
 $ledger = list_items('ledger', $lq, $from, $to, $show, $lsort, $ldir, $sign,
-                     $perPage, ($lPage - 1) * $perPage, $lf, $pickedM);
+                     $perPage, ($lPage - 1) * $perPage, $lf, $lPer);
 $bank   = list_items('bank',   $bq, $from, $to, $show, $bsort, $bdir, $sign,
-                     $perPage, ($bPage - 1) * $perPage, $bf, $pickedM);
+                     $perPage, ($bPage - 1) * $perPage, $bf, $bPer);
 
-$back   = array_filter(['lq' => $lq, 'bq' => $bq, 'months' => $monthsStr,
+$back   = array_filter(['lq' => $lq, 'bq' => $bq,
                         'from' => $from, 'to' => $to, 'show' => $show,
                         'per' => $perPage, 'lp' => $lPage, 'bp' => $bPage,
                         'in' => $wantIn ? '1' : '', 'out' => $wantOut ? '1' : '',
-                        'ls' => $lsort, 'ld' => $ldir, 'bs' => $bsort, 'bd' => $bdir] + $lfFlat + $bfFlat);
+                        'ls' => $lsort, 'ld' => $ldir, 'bs' => $bsort, 'bd' => $bdir] + $perParams + $lfFlat + $bfFlat);
 
 // Page links for one side, keeping every other setting as it is.
 function pager($sideKey, $page, $pages)
@@ -408,7 +410,7 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
           ['searchB', ['lq' => $lq, 'ls' => $lsort, 'ld' => $ldir, 'bs' => $bsort, 'bd' => $bdir] + $lfFlat]]
          as [$id, $others]): ?>
   <form method="get" id="<?= $id ?>" style="display:none">
-    <?php foreach ($others + ['months' => $monthsStr, 'from' => $from, 'to' => $to, 'show' => $show,
+    <?php foreach ($others + $perParams + ['from' => $from, 'to' => $to, 'show' => $show,
                               'per' => $perPage] as $k => $v): ?>
       <input type="hidden" name="<?= h($k) ?>" value="<?= h($v) ?>">
     <?php endforeach; ?>
@@ -423,22 +425,97 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
   <?php foreach ($lfFlat + $bfFlat as $k => $v): ?>
     <input type="hidden" name="<?= h($k) ?>" value="<?= h($v) ?>">
   <?php endforeach; ?>
-  <?php if ($months): ?>
+  <?php
+    // One list of tick boxes per side, and per side a choice of what the list
+    // goes by: the transaction date, or a field of that side's own such as a
+    // period. Every list is drawn; the ones not chosen are hidden and switched
+    // off, so only the chosen one is sent.
+    $perSides = [];
+    foreach (['ledger' => ['l', $lPer], 'bank' => ['b', $bPer]] as $sd => [$p, $sel]) {
+        $perSides[$sd] = [$p, $sel, side_months($sd), period_fields($sd)];
+    }
+    $anyMonths = $perSides['ledger'][2] || $perSides['bank'][2];
+    $perOn     = $lPer['vals'] || $bPer['vals'];
+    $perLabel  = periods_shared($lPer, $bPer) ? months_label($lPer['vals'])
+               : side_label('ledger') . ': ' . side_period_label('ledger', $lPer, 2) . '  ·  '
+                 . side_label('bank') . ': ' . side_period_label('bank', $bPer, 2);
+  ?>
+  <?php if ($anyMonths): ?>
   <div><label>Months</label>
     <details class="monthpick">
-      <summary<?= $pickedM ? ' class="on"' : '' ?>><?= h(months_label($pickedM)) ?></summary>
-      <div class="monthlist">
-        <?php foreach ($months as $ym => $label): ?>
-          <label><input type="checkbox" name="m[]" value="<?= h($ym) ?>" style="width:auto"
-            <?= in_array($ym, $pickedM, true) ? 'checked' : '' ?>> <?= h($label) ?></label>
+      <summary<?= $perOn ? ' class="on"' : '' ?>><?= h($perLabel) ?></summary>
+      <div class="monthlist mtwo">
+        <div class="mcols">
+        <?php foreach ($perSides as $sd => [$p, $sel, $ms, $fields]): ?>
+          <div class="mside" data-p="<?= $p ?>">
+            <div class="mhead"><b><?= h(side_label($sd)) ?></b>
+              <?php if ($fields): ?>
+                by <select name="<?= $p ?>by" class="mby" title="Go by the transaction date, or by a field of this file's own such as an accounting period">
+                  <option value="">transaction date</option>
+                  <?php foreach ($fields as $k => $f): ?>
+                    <option value="<?= h($k) ?>"<?= $sel['by'] === $k ? ' selected' : '' ?>><?= h($f['label']) ?></option>
+                  <?php endforeach; ?>
+                </select>
+              <?php else: ?>
+                <span class="muted small">by transaction date</span>
+              <?php endif; ?>
+            </div>
+            <?php
+              $lists = ['' => ['date', $ms]];
+              foreach ($fields as $k => $f) $lists[$k] = [mb_strtolower(trim($f['label'])), array_combine($f['values'], $f['values'])];
+              foreach ($lists as $by => [$kind, $opts]):
+                $on = $sel['by'] === $by;
+            ?>
+              <div class="mvals" data-by="<?= h($by) ?>" data-kind="<?= h($kind) ?>"<?= $on ? '' : ' hidden' ?>>
+                <?php foreach ($opts as $v => $label): ?>
+                  <label><input type="checkbox" name="<?= $p ?>m[]" value="<?= h($v) ?>" style="width:auto"
+                    <?= $on && in_array((string)$v, $sel['vals'], true) ? 'checked' : '' ?><?= $on ? '' : ' disabled' ?>> <?= h($label) ?></label>
+                <?php endforeach; ?>
+                <?php if (!$opts): ?><span class="muted small">Nothing to choose from.</span><?php endif; ?>
+              </div>
+            <?php endforeach; ?>
+          </div>
         <?php endforeach; ?>
+        </div>
+        <label class="small" style="margin:.4rem 0 0;color:var(--ink);white-space:normal"
+               title="When both sides go by the date, or by fields of the same name, a tick on one side is copied to the other">
+          <input type="checkbox" id="mSame" style="width:auto" checked> Tick the same on both sides when they go by the same thing</label>
         <div class="monthbtns">
           <button class="btn small" type="submit">Apply</button>
           <button class="btn ghost small" type="button"
-            onclick="this.closest('.monthlist').querySelectorAll('input').forEach(function(c){c.checked=false})">Untick all</button>
+            onclick="this.closest('.monthlist').querySelectorAll('.mvals input').forEach(function(c){c.checked=false})">Untick all</button>
         </div>
       </div>
     </details></div>
+  <script>
+  (function () {
+    var list = document.querySelector('.monthlist.mtwo');
+    if (!list) return;
+    function shown(side) { return side.querySelector('.mvals:not([hidden])'); }
+    // switching what a side goes by: show that list, and only send that one
+    list.querySelectorAll('.mby').forEach(function (sel) {
+      sel.addEventListener('change', function () {
+        var side = sel.closest('.mside');
+        side.querySelectorAll('.mvals').forEach(function (v) {
+          var on = v.getAttribute('data-by') === sel.value;
+          v.hidden = !on;
+          v.querySelectorAll('input').forEach(function (c) { c.disabled = !on; if (!on) c.checked = false; });
+        });
+      });
+    });
+    // a tick copied across when both sides go by the same kind of thing
+    list.addEventListener('change', function (e) {
+      var c = e.target;
+      if (!c.matches('.mvals input') || !document.getElementById('mSame').checked) return;
+      var mine = c.closest('.mvals');
+      list.querySelectorAll('.mside').forEach(function (side) {
+        var other = shown(side);
+        if (!other || other === mine || other.getAttribute('data-kind') !== mine.getAttribute('data-kind')) return;
+        other.querySelectorAll('input').forEach(function (o) { if (o.value === c.value) o.checked = c.checked; });
+      });
+    });
+  })();
+  </script>
   <?php endif; ?>
   <div><label>Dated from</label><input type="date" name="from" value="<?= h($from) ?>"></div>
   <div><label>To</label><input type="date" name="to" value="<?= h($to) ?>"></div>
@@ -550,8 +627,9 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
         <?php
           // the download takes the same filters as the screen, so what comes out
           // is what you are looking at
-          $dl = ['side' => $side, 'q' => $val, 'from' => $from, 'to' => $to, 'months' => $monthsStr,
-                 'show' => $show, 'sort' => $sortKey, 'dir' => $dir];
+          $dl = ['side' => $side, 'q' => $val, 'from' => $from, 'to' => $to,
+                 'show' => $show, 'sort' => $sortKey, 'dir' => $dir]
+               + side_period_params($side, $side === 'ledger' ? $lPer : $bPer);
           foreach ($colf as $k => $v) $dl['f_' . $k] = $v;
           if ($wantIn)  $dl['in']  = 1;
           if ($wantOut) $dl['out'] = 1;

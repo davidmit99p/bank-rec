@@ -67,6 +67,105 @@ function months_label(array $months, $max = 3)
     return implode(', ', array_map(fn($ym) => date('M Y', strtotime($ym . '-01')), $months));
 }
 
+// --- months, or periods, one side at a time ------------------------------------
+//
+// Each side can be narrowed by the month of its transaction date, or by one of
+// its own spare fields - an accounting period, say, because something dated 31
+// March can be posted to April. A bank statement has no period, so the ledger
+// can go by period while the bank goes by date.
+//
+// Per side the settings travel as lby / bby (the spare field, or nothing for the
+// date) and lm[] / bm[] from the tick boxes, or lmonths / bmonths flat. With no
+// side setting of its own, a side by date falls back to the shared "months",
+// which is what the pivot and older links send.
+
+// Most values a field can have and still be offered - a period has a few dozen,
+// a reference has thousands and is what the column filters are for.
+const PERIOD_FIELD_MAX = 400;
+
+// The spare fields one side can be narrowed by: named on its file, and with few
+// enough different values to list. [key => ['label' => ..., 'values' => [...]]]
+function period_fields($side)
+{
+    static $cache = [];
+    $fid = side_file_id($side);
+    if ($fid === null) return [];
+    if (isset($cache[$fid])) return $cache[$fid];
+    $out = [];
+    foreach (file_extra_labels($fid) as $key => $label) {
+        if (!preg_match('/^extra\d+$/', $key)) continue;
+        $vals = db()->query("SELECT DISTINCT TRIM(t.{$key}) v FROM rec_txns t WHERE " . file_where($side, 't')
+                            . " AND TRIM(t.{$key}) <> '' LIMIT " . (PERIOD_FIELD_MAX + 1))
+                    ->fetchAll(PDO::FETCH_COLUMN);
+        if (!$vals || count($vals) > PERIOD_FIELD_MAX) continue;
+        // a comma would split it apart when the choice travels as one setting
+        $vals = array_values(array_filter($vals, fn($v) => strpos($v, ',') === false));
+        natcasesort($vals);
+        $out[$key] = ['label' => $label, 'values' => array_values(array_reverse($vals))];   // newest first, like the months
+    }
+    return $cache[$fid] = $out;
+}
+
+// The months one side's transactions fall in, newest first.
+function side_months($side)
+{
+    if (side_file_id($side) === null) return [];
+    $rows = db()->query("SELECT DISTINCT DATE_FORMAT(t.txn_date, '%Y-%m') ym FROM rec_txns t WHERE "
+                        . file_where($side, 't') . " ORDER BY ym DESC")->fetchAll(PDO::FETCH_COLUMN);
+    $out = [];
+    foreach ($rows as $ym) $out[$ym] = date('F Y', strtotime($ym . '-01'));
+    return $out;
+}
+
+// What one side is narrowed to: ['by' => '' for the date or a spare field,
+// 'vals' => the months (yyyy-mm) or the field's values].
+function read_side_period($side, array $src)
+{
+    $p  = $side === 'ledger' ? 'l' : 'b';
+    $by = (string)($src[$p . 'by'] ?? '');
+    if ($by !== '' && !array_key_exists($by, file_extra_labels(side_file_id($side)))) $by = '';
+
+    if (isset($src[$p . 'm']) && is_array($src[$p . 'm']))     $raw = $src[$p . 'm'];
+    elseif (trim((string)($src[$p . 'months'] ?? '')) !== '')  $raw = explode(',', (string)$src[$p . 'months']);
+    elseif ($by === '')                                        return ['by' => '', 'vals' => read_months($src)];
+    else                                                       $raw = [];
+
+    $vals = [];
+    foreach ($raw as $v) {
+        $v = trim((string)$v);
+        if ($v === '' || ($by === '' && !preg_match('/^\d{4}-\d{2}$/', $v))) continue;
+        $vals[$v] = true;
+    }
+    $vals = array_keys($vals);
+    sort($vals, SORT_NATURAL | SORT_FLAG_CASE);
+    return ['by' => $by, 'vals' => $vals];
+}
+
+// The same, flat, for carrying through links and hidden fields.
+function side_period_params($side, array $sel)
+{
+    $p = $side === 'ledger' ? 'l' : 'b';
+    return array_filter([$p . 'by' => $sel['by'], $p . 'months' => implode(',', $sel['vals'])],
+                        fn($v) => $v !== '');
+}
+
+// "Mar 2026", "Period 2026/03, 2026/04", "any Period".
+function side_period_label($side, array $sel, $max = 3)
+{
+    if ($sel['by'] === '') return months_label($sel['vals'], $max);
+    $name = file_extra_labels(side_file_id($side))[$sel['by']] ?? 'field';
+    if (!$sel['vals']) return 'any ' . $name;
+    if (count($sel['vals']) > $max) return $name . ': ' . count($sel['vals']) . ' chosen';
+    return $name . ' ' . implode(', ', $sel['vals']);
+}
+
+// True when both sides go by date and have the same months - then it reads as
+// one setting rather than two.
+function periods_shared(array $l, array $b)
+{
+    return $l['by'] === '' && $b['by'] === '' && $l['vals'] === $b['vals'];
+}
+
 // --- a filter above every column ----------------------------------------------
 //
 // Which columns a side can be filtered on: the date, the description, whichever
@@ -150,6 +249,12 @@ function describe_side_filters($side, array $p)
         elseif ($col === 'value' && is_numeric(str_replace(',', '', $v))) $out[] = "{$name} is +/- {$v}";
         else                                            $out[] = "{$name} contains {$v}";
     }
+    // months or periods, when this side's differ from the other's
+    $mine  = read_side_period($side, $p);
+    $other = read_side_period($side === 'ledger' ? 'bank' : 'ledger', $p);
+    if ($mine['vals'] && !periods_shared($mine, $other)) {
+        $out[] = ($mine['by'] === '' ? 'months ' : '') . side_period_label($side, $mine, 12);
+    }
     return $out;
 }
 
@@ -157,7 +262,8 @@ function describe_side_filters($side, array $p)
 function describe_shared_filters(array $p)
 {
     $out  = [];
-    if ($m = read_months($p)) $out[] = 'months ' . months_label($m, 12);
+    $l = read_side_period('ledger', $p);
+    if ($l['vals'] && periods_shared($l, read_side_period('bank', $p))) $out[] = 'months ' . months_label($l['vals'], 12);
     $from = trim((string)($p['from'] ?? ''));
     $to   = trim((string)($p['to'] ?? ''));
     if ($from !== '' && $to !== '') $out[] = "dated {$from} to {$to}";
@@ -199,6 +305,20 @@ function item_filters($side, $q, $from, $to, $show, $sign, array $colf = [], arr
         [$sql, $a] = column_filter_sql($col, $v);
         $where[] = $sql;
         foreach ($a as $x) $args[] = $x;
+    }
+    // A side narrowed by a spare field - a period, say - rather than the date.
+    // $months is then what read_side_period() gives; a plain list of months is
+    // the date, as before.
+    if (isset($months['by'])) {
+        $by   = $months['by'];
+        $pick = $months['vals'];
+        $months = [];
+        if ($by === '') {
+            $months = $pick;
+        } elseif ($pick && isset($allowed[$by]) && preg_match('/^extra\d+$/', $by)) {
+            $where[] = "TRIM(t.{$by}) IN (" . implode(',', array_fill(0, count($pick), '?')) . ')';
+            foreach ($pick as $v) $args[] = $v;
+        }
     }
     // each month as a date range, so the date index still does the work
     if ($months) {

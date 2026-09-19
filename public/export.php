@@ -29,7 +29,7 @@ $sign = $wantIn && $wantOut ? 'both' : ($wantIn ? 'in' : 'out');
 // to be on screen. Items sitting in an unfinalised run are hidden here just as
 // they are on the screen - that is handled inside item_filters().
 $colf = read_column_filters($side, 'f_', $_GET);
-$rows = list_items($side, $q, $from, $to, $show, $sort, $dir, $sign, null, 0, $colf, read_months($_GET));
+$rows = list_items($side, $q, $from, $to, $show, $sort, $dir, $sign, null, 0, $colf, read_side_period($side, $_GET));
 
 // a filename that says what it is, without spaces or punctuation to trip Excel
 $rec  = current_rec();
