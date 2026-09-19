@@ -95,6 +95,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    // "Test" tries the rule as it stands on the form, saving nothing, and comes
+    // back to the same form with what it would find.
+    if (($_POST['action'] ?? '') === 'test') {
+        $r = array_merge($r, $vals);
+        $r['active'] = $vals['active'];
+        $test = rule_test($r);
+    } else {
+
     // the column names are quoted because one of them, "grouping", is a word
     // some versions of MySQL keep for themselves
     $names = array_keys($vals);
@@ -111,7 +119,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     header('Location: rules.php');
     exit;
+    }
 }
+
+$test = $test ?? null;
 
 // Draw one side of the form. $p is 'l_' or 'b_'.
 function side_form(array $r, $p)
@@ -200,6 +211,70 @@ form to say which <b>bank</b> lines they should be paired with. Leave a box on &
     <p style="margin:0"><b>One small database change is still to run.</b> In phpMyAdmin, run
       <code>sql/migration_015_field_condition_range.sql</code> against <code>entigy_recon</code>. Until then a
       field condition can say <b>is one of</b> but not <b>is between</b>, which needs a second box.</p>
+  </div>
+<?php endif; ?>
+
+<?php if ($test): ?>
+  <?php
+    $none  = !$test['fit_l'] || !$test['fit_b'];
+    $shade = $none ? ['#fbeeee', '#eccfcf'] : ['#eef6ee', '#cfe3cf'];
+  ?>
+  <div class="panel" style="background:<?= $shade[0] ?>;border-color:<?= $shade[1] ?>">
+    <h2 style="margin-top:0">What this rule finds</h2>
+    <p style="margin:.2rem 0">Of the items still to be matched in
+      <b><?= h(current_rec()['name'] ?? 'this reconciliation') ?></b>, the conditions fit:</p>
+    <ul style="margin:.2rem 0 .6rem">
+      <li><b><?= h(side_label('ledger')) ?>:</b> <?= number_format($test['fit_l']) ?> of
+        <?= number_format($test['open_l']) ?> open lines, totalling <?= money($test['total_l']) ?></li>
+      <li><b><?= h(side_label('bank')) ?>:</b> <?= number_format($test['fit_b']) ?> of
+        <?= number_format($test['open_b']) ?> open lines, totalling <?= money($test['total_b']) ?></li>
+    </ul>
+    <?php if ($none): ?>
+      <?php
+        $empty = !$test['fit_l'] && !$test['fit_b']
+               ? 'Neither side has anything left once its conditions have been applied.'
+               : 'The ' . side_label(!$test['fit_l'] ? 'ledger' : 'bank')
+                 . ' side has nothing left once its conditions have been applied.';
+      ?>
+      <p style="margin:.2rem 0"><b>Nothing would be matched.</b> <?= h($empty) ?> Look at the conditions there &mdash; a code written differently from the
+        file, or a range of periods that misses the ones in the file, will empty a side. The
+        <a href="transactions.php">Transactions</a> screen shows the values as they really are.</p>
+    <?php elseif ($test['groups'] === null): ?>
+      <p style="margin:.2rem 0">This shape pairs lines up one by one, so what it matches depends on the
+        dates and amounts as well. Press <b>Process rules</b> on the Transactions screen to see the
+        suggestions; nothing is committed until you finalise them.</p>
+    <?php elseif (!$test['groups'] && ($test['keys_l'] ?? null) !== null): ?>
+      <?php
+        $kl = file_extra_labels(side_file_id('ledger'))[$r['key_left']] ?? 'the key';
+        $kb = file_extra_labels(side_file_id('bank'))[$r['key_right']] ?? 'the key';
+      ?>
+      <p style="margin:.2rem 0"><b>Nothing would be matched.</b> No value appears on both sides, so there is
+        nothing to group. The <?= h(side_label('ledger')) ?> side has <b><?= number_format($test['keys_l']) ?></b>
+        different values of <b><?= h($kl) ?></b><?= $test['blank_l'] ? ' (' . number_format($test['blank_l']) . ' lines have nothing in it)' : '' ?>;
+        the <?= h(side_label('bank')) ?> side has <b><?= number_format($test['keys_b']) ?></b> of
+        <b><?= h($kb) ?></b><?= $test['blank_b'] ? ' (' . number_format($test['blank_b']) . ' lines have nothing in it)' : '' ?>.
+        Check that each side's key names the field that really holds it on that file, and that the two write
+        it the same way.</p>
+    <?php else: ?>
+      <p style="margin:.2rem 0"><b><?= number_format($test['groups']) ?></b> appear on both sides.
+        <b><?= number_format($test['balance']) ?></b> come to the same on each side and would be matched;
+        <b><?= number_format($test['off']) ?></b> do not, and would be left for you to look at.</p>
+      <?php if ($test['examples']): ?>
+        <table style="width:auto;background:var(--panel);border-radius:6px">
+          <thead><tr><th></th><th class="num"><?= h(side_label('ledger')) ?></th>
+            <th class="num"><?= h(side_label('bank')) ?></th><th></th></tr></thead>
+          <tbody>
+          <?php foreach ($test['examples'] as [$k, $lt, $bt, $ok]): ?>
+            <tr><td><?= h($k) ?></td><td class="num"><?= money($lt) ?></td><td class="num"><?= money($bt) ?></td>
+              <td class="small <?= $ok ? '' : 'neg' ?>"><?= $ok ? 'matches' : 'does not balance' ?></td></tr>
+          <?php endforeach; ?>
+          </tbody>
+        </table>
+        <p class="small muted" style="margin:.3rem 0 0">The first few, as an example.</p>
+      <?php endif; ?>
+    <?php endif; ?>
+    <p class="small muted" style="margin:.5rem 0 0">Nothing has been saved or matched. Press
+      <b><?= $id ? 'Save rule' : 'Create rule' ?></b> to keep the rule as it is on this page.</p>
   </div>
 <?php endif; ?>
 
@@ -334,7 +409,9 @@ form to say which <b>bank</b> lines they should be paired with. Leave a box on &
   </div>
 
   <div class="actions">
-    <button class="btn" type="submit"><?= $id ? 'Save rule' : 'Create rule' ?></button>
+    <button class="btn" type="submit" name="action" value="save"><?= $id ? 'Save rule' : 'Create rule' ?></button>
+    <button class="btn ghost" type="submit" name="action" value="test"
+      title="Try it against the open items without saving or matching anything">Test this rule</button>
     <a class="btn ghost" href="rules.php">Cancel</a>
   </div>
 </form>

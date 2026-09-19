@@ -644,6 +644,76 @@ function rule_buckets(array $rule, array $L, array $B)
 }
 
 // -----------------------------------------------------------------------------
+// Try a rule without writing anything, so the form can say what it would find.
+//
+// The commonest disappointment is a rule that finds nothing, and the reason is
+// almost always one condition emptying a side - a code written differently, or
+// a period range that misses the year. So this counts each side separately
+// before it counts pairs, and that is usually enough to see it.
+//
+// It looks at open items in the reconciliation being worked on, which is what
+// Process would work on too.
+// -----------------------------------------------------------------------------
+function rule_test(array $rule)
+{
+    $allL = load_open('ledger');
+    $allB = load_open('bank');
+    $L = array_values(array_filter($allL, fn($r) => row_matches_side($r, $rule, 'l_')));
+    $B = array_values(array_filter($allB, fn($r) => row_matches_side($r, $rule, 'b_')));
+    $sum = fn($rows) => array_sum(array_map(fn($r) => (float)$r['value'], $rows));
+
+    $out = ['open_l' => count($allL), 'open_b' => count($allB),
+            'fit_l'  => count($L),    'fit_b'  => count($B),
+            'total_l' => $sum($L),    'total_b' => $sum($B),
+            'shape' => grouping_modes()[$rule['grouping']] ?? $rule['grouping'],
+            'groups' => null, 'balance' => null, 'off' => null, 'examples' => []];
+
+    // The shapes that gather everything sharing something can be counted exactly:
+    // how many keys are on both sides, and how many of those come to the same.
+    $len = period_len($rule['grouping']);
+    if ($rule['grouping'] === 'key' || $len) {
+        $on = $off = 0;
+        $keysL = $keysB = [];
+        $blankL = $blankB = 0;
+        if (!$len) {
+            // lines with nothing in the key field cannot be grouped at all, and
+            // that is the usual reason a side brings nothing to the party
+            foreach ([[$L, $rule['key_left'], 'l'], [$B, $rule['key_right'], 'b']] as [$rows, $field, $sd]) {
+                foreach ($rows as $row) {
+                    $k = mb_strtoupper(trim((string)($row[$field ?: 'extra1'] ?? '')));
+                    if ($k === '') { $sd === 'l' ? $blankL++ : $blankB++; continue; }
+                    $sd === 'l' ? $keysL[$k] = true : $keysB[$k] = true;
+                }
+            }
+        }
+        $out['keys_l']  = $len ? null : count($keysL);
+        $out['keys_b']  = $len ? null : count($keysB);
+        $out['blank_l'] = $blankL;
+        $out['blank_b'] = $blankB;
+        foreach (rule_buckets($rule, $L, $B) as $bucket) {
+            $byL = $len ? group_by_period($bucket['L'], [], $len) : group_by_key($bucket['L'], [], $rule['key_left'] ?: 'extra1');
+            $byB = $len ? group_by_period($bucket['B'], [], $len) : group_by_key($bucket['B'], [], $rule['key_right'] ?: 'extra1');
+            foreach ($byL as $k => $ls) {
+                if (empty($byB[$k])) continue;
+                $lt = $sum($ls);
+                $bt = $sum($byB[$k]);
+                if (group_balances($lt, $bt, $rule['sign_mode'])) {
+                    $on++;
+                    if (count($out['examples']) < 5) $out['examples'][] = [$k, $lt, $bt, true];
+                } else {
+                    $off++;
+                    if (count($out['examples']) < 5) $out['examples'][] = [$k, $lt, $bt, false];
+                }
+            }
+        }
+        $out['groups']  = $on + $off;
+        $out['balance'] = $on;
+        $out['off']     = $off;
+    }
+    return $out;
+}
+
+// -----------------------------------------------------------------------------
 // Run every active rule against the open items and write the suggestions.
 // -----------------------------------------------------------------------------
 function run_rules($runId)
