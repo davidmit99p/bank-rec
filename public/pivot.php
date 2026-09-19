@@ -337,11 +337,19 @@ if (!$noFiles && !$spareCount): ?>
         <?= h(mb_strtolower($dims[$c]['label'])) ?> values<?php endif; ?>
       <?= $hide ? '&middot; the ones that fully agree are hidden' : '' ?>.
       Hover a cell for each side's total and count.</p>
-    <p class="small pv-legend">
-      <span class="pv-key pv-left"></span> only in <?= h(side_label('ledger')) ?>
-      <span class="pv-key pv-right"></span> only in <?= h(side_label('bank')) ?>
-      <span class="pv-key pv-both"></span> in both, but they differ
-      <span class="pv-key pv-ok"></span> agrees</p>
+    <?php
+    // the legend follows the Show setting, so "items" means what is on show
+    $items = ['open' => 'items still to match', 'matched' => 'matched items', 'both' => 'items'][$show];
+    ?>
+    <p class="small pv-legend pv-list">
+      <span><span class="pv-key pv-left"></span><b>Only in <?= h(side_label('ledger')) ?></b>:
+        nothing on the other side in this slice</span>
+      <span><span class="pv-key pv-right"></span><b>Only in <?= h(side_label('bank')) ?></b>:
+        nothing on the other side in this slice</span>
+      <span><span class="pv-key pv-both"></span><b>In both, but they differ</b></span>
+      <span><span class="pv-key pv-dash"></span><b>Nets to zero</b>: <?= $items ?> here,
+        but they cancel out, so nothing is missing</span>
+      <span><span class="pv-key"></span><b>Blank</b>: no <?= $items ?> in this slice</span></p>
     <div class="scroll" style="max-height:70vh">
       <table class="pivot">
         <thead><tr>

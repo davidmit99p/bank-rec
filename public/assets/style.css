@@ -163,3 +163,6 @@ thead:has(.colfilters) th{position:static}
 .pv-key{display:inline-block;width:1.1em;height:1.1em;border-radius:3px;border:1px solid var(--line);vertical-align:-.2em;margin-right:.3rem}
 .pv-key.pv-left{background:#f9dcdc}.pv-key.pv-right{background:#dcefdc}
 .pv-key.pv-both{background:#fbf0c4}.pv-key.pv-ok{background:var(--panel)}
+.pv-key{background:var(--panel)}
+.pv-key.pv-dash{background:linear-gradient(var(--muted),var(--muted)) center/45% 1.5px no-repeat,var(--panel)}
+.pv-legend.pv-list{flex-direction:column;align-items:flex-start;gap:.25rem}
