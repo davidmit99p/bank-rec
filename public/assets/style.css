@@ -139,3 +139,6 @@ thead:has(.colfilters) th{position:static}
   max-height:18rem;overflow:auto;min-width:12rem}
 .monthlist label{display:block;margin:.15rem 0;color:var(--ink);white-space:nowrap;font-weight:400}
 .monthbtns{display:flex;gap:.4rem;margin-top:.4rem;position:sticky;bottom:-.4rem;background:var(--panel);padding:.3rem 0}
+
+/* a faint up/down beside headings you can sort by */
+.sorthint{opacity:.35;font-size:.85em}

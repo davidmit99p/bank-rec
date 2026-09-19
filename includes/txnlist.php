@@ -15,10 +15,12 @@ require_once __DIR__ . '/matchstate.php';
 // reaches the query.
 function sort_columns()
 {
-    return ['date'        => 'txn_date',
+    $out = ['date'        => 'txn_date',
             'description' => 'description',
             'value'       => 'value',
             'abs'         => 'value'];   // by size, ignoring the sign
+    foreach (spare_keys() as $k) $out[$k] = $k;
+    return $out;
 }
 
 // The ORDER BY for a sort choice.

@@ -278,7 +278,8 @@ function sort_link($label, $side, $key, $curKey, $curDir, $title = '')
     $params[$side . 's'] = $key;
     $params[$side . 'd'] = ($curKey === $key && $curDir === 'asc') ? 'desc' : 'asc';
     $params[$side . 'p'] = 1;                 // a new order means starting again
-    $arrow = $curKey === $key ? ($curDir === 'asc' ? ' &uarr;' : ' &darr;') : '';
+    $arrow = $curKey === $key ? ($curDir === 'asc' ? ' &uarr;' : ' &darr;')
+                              : ' <span class="sorthint">&#8597;</span>';     // "click to sort"
     $style = $curKey === $key ? 'color:var(--accent);font-weight:700' : 'color:inherit';
     return '<a href="?' . h(http_build_query($params)) . '"'
          . ($title ? ' title="' . h($title) . '"' : '')
@@ -462,6 +463,9 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
     </select></div>
   <button class="btn ghost" type="submit">Filter</button>
   <a class="btn ghost" href="transactions.php">Clear all</a>
+  <label style="margin:0 0 .45rem;color:var(--ink);white-space:nowrap"
+         title="A column filter typed on one side is copied to the column of the same name on the other side. Clearing only clears that side.">
+    <input type="checkbox" id="mirrorFilters" style="width:auto" checked> Copy column filters to the other side</label>
   <?php if ($show !== 'open'): ?>
     <span class="muted small" style="flex:1;min-width:16rem">Matched items are greyed, and carry their
       rule and run. Tick them and press Unmatch to bring them back.</span>
@@ -565,8 +569,8 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
             ?>
             <?= sort_head('Date', $pfx, 'date', $sortKey, $dir) ?>
             <?= sort_head('Description', $pfx, 'description', $sortKey, $dir) ?>
-            <?php foreach (extra_labels($side) as $label): ?>
-              <th><?= h($label) ?></th>
+            <?php foreach (extra_labels($side) as $key => $label): ?>
+              <?= sort_head($label, $pfx, $key, $sortKey, $dir) ?>
             <?php endforeach; ?>
             <?= value_head($pfx, $sortKey, $dir) ?>
             <?php if (!$tickFirst) echo $allBox; ?>
@@ -574,18 +578,20 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
           <tr class="colfilters">
             <?php
               // one box per column; Enter applies them all for this side
-              $fbox = function ($col, $ph) use ($pfx, $formId, $colf) {
+              $fbox = function ($col, $ph, $twin) use ($pfx, $formId, $colf, $tag) {
                   return '<th><input type="text" name="' . $pfx . 'f_' . $col . '" form="' . $formId . '"'
+                       . ' class="colf' . (isset($colf[$col]) ? ' on' : '') . '" data-side="' . $tag . '"'
+                       . ' data-twin="' . h(mb_strtolower(trim($twin))) . '"'
                        . ' value="' . h($colf[$col] ?? '') . '" placeholder="' . h($ph) . '"'
                        . ' title="Type and press Enter. =exact  !not  (blank)'
                        . ($col === 'value' ? '  100 either sign  =-100  >100  <100' : '') . '"'
-                       . (isset($colf[$col]) ? ' class="on"' : '') . '></th>';
+                       . '></th>';
               };
               if ($tickFirst) echo '<th></th>';
-              echo $fbox('date', 'filter');
-              echo $fbox('description', 'filter');
-              foreach (array_keys(extra_labels($side)) as $key) echo $fbox($key, 'filter');
-              echo $fbox('value', '100, >100');
+              echo $fbox('date', 'filter', ':date');
+              echo $fbox('description', 'filter', ':description');
+              foreach (extra_labels($side) as $key => $label) echo $fbox($key, 'filter', $label);
+              echo $fbox('value', '100, >100', ':value');
               if (!$tickFirst) echo '<th></th>';
             ?>
           </tr></thead>
@@ -848,6 +854,45 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
 
   update();
   refreshHeadings();
+})();
+</script>
+<script>
+// Copy a column filter to the same-named column on the other side.
+//
+// Only what was typed or changed on this visit is copied, and only when it has
+// something in it - so clearing a filter clears that side alone, and a filter
+// deliberately removed from the other side is not put straight back.
+(function () {
+  var box = document.getElementById('mirrorFilters');
+  if (!box) return;
+  try { box.checked = localStorage.getItem('recMirrorFilters') !== '0'; } catch (e) {}
+  box.addEventListener('change', function () {
+    try { localStorage.setItem('recMirrorFilters', box.checked ? '1' : '0'); } catch (e) {}
+  });
+
+  ['searchL', 'searchB'].forEach(function (formId) {
+    var form = document.getElementById(formId);
+    if (!form) return;
+    form.addEventListener('submit', function () {
+      if (!box.checked) return;
+      document.querySelectorAll('input.colf[form="' + formId + '"]').forEach(function (mine) {
+        var v = mine.value.trim();
+        if (v === '' || mine.value === mine.defaultValue) return;
+        var other = document.querySelector('input.colf[data-twin="' + CSS.escape(mine.dataset.twin)
+                                          + '"]:not([form="' + formId + '"])');
+        if (!other) return;                                  // no column of that name over there
+        // the other side's filters travel in this form as hidden fields
+        var carried = form.querySelector('input[type=hidden][name="' + other.name + '"]');
+        if (!carried) {
+          carried = document.createElement('input');
+          carried.type = 'hidden';
+          carried.name = other.name;
+          form.appendChild(carried);
+        }
+        carried.value = mine.value;
+      });
+    });
+  });
 })();
 </script>
 <?php if (extras_ready()): ?>
