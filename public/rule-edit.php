@@ -184,6 +184,9 @@ form to say which <b>bank</b> lines they should be paired with. Leave a box on &
           <option value="opposite"<?= $r['sign_mode'] === 'opposite' ? ' selected' : '' ?>>Bank is the opposite sign</option>
         </select></div>
     </div>
+    <p class="small muted" style="margin:.4rem 0 0"><b>Most lines in a group</b> is only used when several lines
+      add up to one, where it caps how many are tried together. The same day, same month and same key shapes
+      take everything that fits (up to <?= number_format(PERIOD_GROUP_CAP) ?> lines a side) and ignore it.</p>
     <?php if (key_rules_ready()): ?>
       <h3 style="margin-top:1.2rem">If the shape is &ldquo;everything sharing the same key&rdquo;</h3>
       <p class="small muted">Which field holds the key &mdash; a booking reference, say. Two settings,
