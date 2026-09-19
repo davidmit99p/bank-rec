@@ -50,6 +50,15 @@ function side_summary(array $r, $p)
         if ($r[$p.'date_op'] === 'between') $d .= ' and ' . $r[$p.'date_val2'];
         $bits[] = $d;
     }
+    // conditions on the file's own fields - "Code is 4010"
+    if (field_conds_ready()) {
+        $named = extra_labels($p === 'l_' ? 'ledger' : 'bank');
+        foreach (field_conds($r, $p) as [$key, $op, $val]) {
+            $name = $named[$key] ?? ('spare field ' . substr($key, 5));
+            $bits[] = $name . ' ' . (field_ops()[$op] ?? $op)
+                    . (in_array($op, ['blank', 'not_blank'], true) ? '' : ' "' . $val . '"');
+        }
+    }
     return $bits ? implode(', ', $bits) : 'any transaction';
 }
 

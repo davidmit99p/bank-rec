@@ -113,9 +113,64 @@ function test_date($date, $op, $a, $b)
     return true;
 }
 
+// --- conditions on a file's own fields ----------------------------------------
+//
+// As well as the description, the value and the date, a rule can be held to
+// particular values of a file's own fields - only code 4010, only period
+// 2026/03. Two per side, each naming the field on that side, because the same
+// thing can be a different spare field on each file.
+const FIELD_COND_MAX = 2;
+
+// The tests offered. The description ones, plus "is blank" - a line with
+// nothing in the field is a real case and worth being able to pick out.
+function field_ops()
+{
+    return desc_ops() + ['blank' => 'is blank', 'not_blank' => 'is not blank'];
+}
+
+// Has migration_014 been run?
+function field_conds_ready()
+{
+    static $ok = null;
+    if ($ok === null) {
+        try { db()->query("SELECT l_f1_key FROM rec_rules LIMIT 1"); $ok = true; }
+        catch (Throwable $e) { $ok = false; }
+    }
+    return $ok;
+}
+
+// The conditions one side of a rule has filled in: [[field, test, value], ...].
+// A condition needs a field, and a value unless the test is about blankness.
+function field_conds(array $rule, $p)
+{
+    $out = [];
+    for ($i = 1; $i <= FIELD_COND_MAX; $i++) {
+        $key = trim((string)($rule[$p . 'f' . $i . '_key'] ?? ''));
+        $op  = trim((string)($rule[$p . 'f' . $i . '_op'] ?? ''));
+        $val = (string)($rule[$p . 'f' . $i . '_val'] ?? '');
+        if ($key === '' || $op === '' || $op === 'any') continue;
+        if (trim($val) === '' && $op !== 'blank' && $op !== 'not_blank') continue;
+        $out[] = [$key, $op, $val];
+    }
+    return $out;
+}
+
+// One condition against one transaction.
+function test_field($value, $op, $want)
+{
+    $v = trim((string)$value);
+    if ($op === 'blank')     return $v === '';
+    if ($op === 'not_blank') return $v !== '';
+    return test_desc($v, $op, $want);
+}
+
 // Does this transaction meet one side of a rule? $p is 'l_' (ledger) or 'b_' (bank).
 function row_matches_side(array $row, array $rule, $p)
 {
+    foreach (field_conds($rule, $p) as [$key, $op, $val]) {
+        if (!array_key_exists($key, $row)) return false;      // the file has no such field
+        if (!test_field($row[$key], $op, $val)) return false;
+    }
     return test_desc($row['description'], $rule[$p . 'desc_op'],  $rule[$p . 'desc_val'])
         && test_value($row['value'],      $rule[$p . 'value_op'], $rule[$p . 'value_val'], $rule[$p . 'value_val2'])
         && test_date($row['txn_date'],    $rule[$p . 'date_op'],  $rule[$p . 'date_val'],  $rule[$p . 'date_val2']);

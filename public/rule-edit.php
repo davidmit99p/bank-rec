@@ -27,6 +27,9 @@ foreach (['l_', 'b_'] as $p) {
         $p.'value_op' => 'any', $p.'value_val' => '', $p.'value_val2' => '',
         $p.'date_op' => 'any',  $p.'date_val' => '',  $p.'date_val2' => '',
     ];
+    for ($i = 1; $i <= FIELD_COND_MAX; $i++) {
+        $blank += [$p.'f'.$i.'_key' => '', $p.'f'.$i.'_op' => 'any', $p.'f'.$i.'_val' => ''];
+    }
 }
 $r = $rule ?: $blank;
 
@@ -37,6 +40,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     foreach (['l_','b_'] as $p) {
         foreach (['desc_op','desc_val','value_op','value_val','value_val2','date_op','date_val','date_val2'] as $c) {
             $cols[] = $p . $c;
+        }
+        if (field_conds_ready()) {
+            for ($i = 1; $i <= FIELD_COND_MAX; $i++) {
+                foreach (['_key', '_op', '_val'] as $c) $cols[] = $p . 'f' . $i . $c;
+            }
         }
     }
     $vals = [];
@@ -66,15 +74,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $vals['ignore_date'] = isset($_POST['ignore_date']) ? 1 : 0;
     }
+    if (field_conds_ready()) {
+        // a condition only counts with a real field and a test we know; anything
+        // else goes back in as nothing, so it cannot quietly narrow a rule
+        $fieldKeys = array_flip(spare_keys());
+        $ops       = field_ops();
+        foreach (['l_','b_'] as $p) {
+            for ($i = 1; $i <= FIELD_COND_MAX; $i++) {
+                $base = $p . 'f' . $i;
+                $key  = (string)$vals[$base . '_key'];
+                $op   = (string)$vals[$base . '_op'];
+                $ok   = isset($fieldKeys[$key]) && isset($ops[$op]) && $op !== 'any';
+                $vals[$base . '_key'] = $ok ? $key : null;
+                $vals[$base . '_op']  = $ok ? $op  : null;
+                $vals[$base . '_val'] = $ok ? $vals[$base . '_val'] : null;
+            }
+        }
+    }
 
+    // the column names are quoted because one of them, "grouping", is a word
+    // some versions of MySQL keep for themselves
     $names = array_keys($vals);
     if ($id) {
-        $set = implode(', ', array_map(fn($c) => "$c = :$c", $names));
+        $set = implode(', ', array_map(fn($c) => "`$c` = :$c", $names));
         $st = db()->prepare("UPDATE rec_rules SET $set WHERE id = :id");
         $st->execute($vals + ['id' => $id]);
         flash("Rule {$id} saved.");
     } else {
-        $st = db()->prepare("INSERT INTO rec_rules (" . implode(',', $names) . ")
+        $st = db()->prepare("INSERT INTO rec_rules (`" . implode('`,`', $names) . "`)
                              VALUES (:" . implode(', :', $names) . ")");
         $st->execute($vals);
         flash('Rule ' . db()->lastInsertId() . ' created.');
@@ -114,6 +141,35 @@ function side_form(array $r, $p)
       <input type="date" name="<?= $p ?>date_val"  value="<?= h($r[$p.'date_val']) ?>">
       <input type="date" name="<?= $p ?>date_val2" value="<?= h($r[$p.'date_val2']) ?>">
     </div>
+
+    <?php
+    // Conditions on this file's own fields - only code 4010, only period
+    // 2026/03. The fields are this side's, named on its file.
+    if (!field_conds_ready()) return;
+    $side  = $p === 'l_' ? 'ledger' : 'bank';
+    $named = extra_labels($side);
+    ?>
+    <label>This file's own fields</label>
+    <?php if (!$named): ?>
+      <p class="small muted" style="margin:0">This side's file has no named fields yet &mdash;
+        name them on the <a href="files.php">Files</a> page and they can be used here.</p>
+    <?php else: ?>
+      <?php for ($i = 1; $i <= FIELD_COND_MAX; $i++): $b = $p . 'f' . $i; ?>
+        <div class="row" style="margin-bottom:.3rem">
+          <select name="<?= $b ?>_key">
+            <option value="">&mdash; not used &mdash;</option>
+            <?php foreach ($named as $k => $label): ?>
+              <option value="<?= h($k) ?>"<?= ($r[$b.'_key'] ?? '') === $k ? ' selected' : '' ?>><?= h($label) ?></option>
+            <?php endforeach; ?>
+          </select>
+          <?php $sel($b . '_op', field_ops(), $r[$b.'_op'] ?: 'any'); ?>
+          <input type="text" name="<?= $b ?>_val" value="<?= h((string)($r[$b.'_val'] ?? '')) ?>"
+                 placeholder="e.g. 4010" style="flex:2">
+        </div>
+      <?php endfor; ?>
+      <p class="small muted" style="margin:.1rem 0 0">Capitals and spaces at either end are ignored.
+        Leave the field on &ldquo;not used&rdquo; to ignore it.</p>
+    <?php endif; ?>
     <?php
 }
 
@@ -122,6 +178,14 @@ render_header($id ? "Rule $id" : 'New rule');
 <h1><?= $id ? 'Rule ' . $id : 'New rule' ?></h1>
 <p class="muted">Fill in the left form to say which <b>ledger</b> lines this rule applies to, and the right
 form to say which <b>bank</b> lines they should be paired with. Leave a box on &ldquo;anything&rdquo; to ignore it.</p>
+
+<?php if (!field_conds_ready()): ?>
+  <div class="panel" style="background:#fdf6e6;border-color:#e8d9a8">
+    <p style="margin:0"><b>One small database change is still to run.</b> In phpMyAdmin, run
+      <code>sql/migration_014_field_conditions.sql</code> against <code>entigy_recon</code>. Until then a rule
+      can be held to a description, a value and a date, but not to a particular code or period.</p>
+  </div>
+<?php endif; ?>
 
 <form method="post">
   <div class="panel">
