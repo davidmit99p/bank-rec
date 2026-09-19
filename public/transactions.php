@@ -299,7 +299,9 @@ function value_head($side, $curKey, $curDir)
     return '<th class="num">'
          . sort_link('Value', $side, 'value', $curKey, $curDir, 'Sort by value')
          . ' <span class="muted">&middot;</span> '
-         . sort_link("Â±", $side, 'abs', $curKey, $curDir,
+         // written as an escape so no editor's idea of the encoding can garble it
+         // again - it was showing as "Â±"
+         . sort_link("\u{00B1}", $side, 'abs', $curKey, $curDir,
                      'Sort by size, ignoring the sign, so an amount and its reversal sit together')
          . '</th>';
 }
