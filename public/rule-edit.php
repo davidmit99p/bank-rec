@@ -19,6 +19,7 @@ $blank = [
     'name' => '', 'active' => 1, 'sort_order' => 100, 'notes' => '',
     'date_tol' => 3, 'sign_mode' => 'same', 'grouping' => 'one', 'max_group' => 4, 'link_desc' => 0,
     'rec_id' => null, 'key_left' => 'extra1', 'key_right' => 'extra1', 'ignore_date' => 0,
+    'self_contra' => 0,
 ];
 for ($i = 1; $i <= AGREE_MAX; $i++) $blank += ['agree_left' . $i => '', 'agree_right' . $i => ''];
 foreach (['l_', 'b_'] as $p) {
@@ -64,6 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $vals['active']     = isset($_POST['active']) ? 1 : 0;
     if (recs_ready()) $vals['rec_id'] = $vals['rec_id'] === '' ? null : (int)$vals['rec_id'];
     $vals['link_desc']  = isset($_POST['link_desc']) ? 1 : 0;
+    if (self_contra_ready()) $vals['self_contra'] = isset($_POST['self_contra']) ? 1 : 0;
     if (agree_ready()) {
         $allowed = key_fields();
         for ($i = 1; $i <= AGREE_MAX; $i++) {
@@ -206,6 +208,12 @@ form to say which <b>bank</b> lines they should be paired with. Leave a box on &
       <code>sql/migration_014_field_conditions.sql</code> against <code>entigy_recon</code>. Until then a rule
       can be held to a description, a value and a date, but not to a particular code or period.</p>
   </div>
+<?php elseif (!self_contra_ready()): ?>
+  <div class="panel" style="background:#fdf6e6;border-color:#e8d9a8">
+    <p style="margin:0"><b>One small database change is still to run.</b> In phpMyAdmin, run
+      <code>sql/migration_016_self_contra.sql</code> against <code>entigy_recon</code>. Until then a rule
+      cannot be asked to clear a period that cancels itself out on one side.</p>
+  </div>
 <?php elseif (!field_range_ready()): ?>
   <div class="panel" style="background:#fdf6e6;border-color:#e8d9a8">
     <p style="margin:0"><b>One small database change is still to run.</b> In phpMyAdmin, run
@@ -302,6 +310,20 @@ form to say which <b>bank</b> lines they should be paired with. Leave a box on &
         <p class="small muted" style="margin:.3rem 0 0">The first few, as an example. The
           <?= h($agreeHead ? 'first two columns are' : 'first column is') ?> what the lines were grouped by.</p>
       <?php endif; ?>
+    <?php endif; ?>
+    <?php if ($test['contras']): ?>
+      <?php
+        $byS = ['ledger' => 0, 'bank' => 0];
+        $lines = 0;
+        foreach ($test['contras'] as [$sd, $k, $n]) { $byS[$sd]++; $lines += $n; }
+        $said = [];
+        foreach ($byS as $sd => $n) {
+            if ($n) $said[] = $n . ' group' . ($n === 1 ? '' : 's') . ' on the ' . side_label($sd) . ' side';
+        }
+      ?>
+      <p style="margin:.2rem 0">It would also clear <b><?= h(implode(' and ', $said)) ?></b>
+        that cancel themselves out, <?= number_format($lines) ?> lines in all:
+        <?= h(implode(', ', array_map(fn($c) => $c[1], array_slice($test['contras'], 0, 5)))) ?><?= count($test['contras']) > 5 ? ' and others' : '' ?>.</p>
     <?php endif; ?>
     <?php if ($test['too_big']): ?>
       <p style="margin:.2rem 0"><b><?= number_format(count($test['too_big'])) ?></b>
@@ -435,6 +457,15 @@ form to say which <b>bank</b> lines they should be paired with. Leave a box on &
         <span class="muted small">&mdash; the &ldquo;dates may differ by&rdquo; setting is not used; where
         there is a choice, the nearest date is still preferred. Handy when the period and reference say
         all that matters.</span></label>
+    <?php endif; ?>
+
+    <?php if (self_contra_ready()): ?>
+      <label style="margin-top:.8rem"><input type="checkbox" name="self_contra" value="1" style="width:auto"
+        <?= !empty($r['self_contra']) ? 'checked' : '' ?>> Also clear a key, day or month that cancels itself
+        out on one side
+        <span class="muted small">&mdash; a posting and its reversal sitting in one file with nothing on the
+        other side to match them against. Tried after the two sides have been paired, so nothing that could
+        have been matched across is taken. Used only by the same key, same day and same month shapes.</span></label>
     <?php endif; ?>
 
     <label style="margin-top:.8rem"><input type="checkbox" name="link_desc" value="1" style="width:auto"

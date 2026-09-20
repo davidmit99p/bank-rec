@@ -516,6 +516,32 @@ function group_by_period(array $rows, array $used, $len)
     return $out;
 }
 
+// Groups on ONE side that cancel themselves out - a posting and its reversal
+// sitting in the ledger with nothing on the other side to match them against.
+// Two lines at least, and they must come to nothing.
+function self_contra_sets(array $rows, array $used, $len, $field)
+{
+    $by  = $len ? group_by_period($rows, $used, $len) : group_by_key($rows, $used, $field ?: 'extra1');
+    $out = [];
+    foreach ($by as $k => $set) {
+        if (count($set) < 2 || count($set) > PERIOD_GROUP_CAP) continue;
+        $total = array_sum(array_map(fn($r) => (float)$r['value'], $set));
+        if (abs($total) < 0.005) $out[$k] = $set;
+    }
+    return $out;
+}
+
+// Has migration_016 been run? Until it has, the setting is not offered.
+function self_contra_ready()
+{
+    static $ok = null;
+    if ($ok === null) {
+        try { db()->query("SELECT self_contra FROM rec_rules LIMIT 1"); $ok = true; }
+        catch (Throwable $e) { $ok = false; }
+    }
+    return $ok;
+}
+
 // Has migration_009 been run? Until it has, the "same key" shape is not offered.
 function key_rules_ready()
 {
@@ -681,13 +707,14 @@ function rule_test(array $rule)
             'total_l' => $sum($L),    'total_b' => $sum($B),
             'shape' => grouping_modes()[$rule['grouping']] ?? $rule['grouping'],
             'held'  => $held,
-            'groups' => null, 'balance' => null, 'off' => null, 'examples' => [], 'too_big' => []];
+            'groups' => null, 'balance' => null, 'off' => null, 'examples' => [], 'too_big' => [], 'contras' => []];
 
     // The shapes that gather everything sharing something can be counted exactly:
     // how many keys are on both sides, and how many of those come to the same.
     $len = period_len($rule['grouping']);
     if ($rule['grouping'] === 'key' || $len) {
         $on = $off = 0;
+        $tookL = $tookB = [];          // what the two-sided pass would use up
         $keysL = $keysB = [];
         $blankL = $blankB = 0;
         if (!$len) {
@@ -718,6 +745,10 @@ function rule_test(array $rule)
                 $lt = $sum($ls);
                 $bt = $sum($byB[$k]);
                 $ok = group_balances($lt, $bt, $rule['sign_mode']);
+                if ($ok) {
+                    foreach ($ls as $row) $tookL[$row['id']] = 1;
+                    foreach ($byB[$k] as $row) $tookB[$row['id']] = 1;
+                }
                 $ok ? $on++ : $off++;
                 if (count($out['examples']) < 5) {
                     // the tag carries the agreeing values, as " - 6715"
@@ -729,6 +760,16 @@ function rule_test(array $rule)
         $out['groups']  = $on + $off;
         $out['balance'] = $on;
         $out['off']     = $off;
+
+        // and then the ones that cancel themselves out on one side, if asked for
+        if (!empty($rule['self_contra'])) {
+            foreach ([['ledger', $L, $tookL, $rule['key_left']],
+                      ['bank',   $B, $tookB, $rule['key_right']]] as [$sd, $rows, $took, $field]) {
+                foreach (self_contra_sets($rows, $took, $len, $field) as $k => $set) {
+                    $out['contras'][] = [$sd, $k, count($set)];
+                }
+            }
+        }
     }
     return $out;
 }
@@ -836,7 +877,35 @@ function run_rules($runId)
                 foreach ($bs as $r) { $insL->execute([$gid, 'bank',   $r['id'], $r['value']]); $usedB[$r['id']] = 1; }
                 $made++;
             }
-        } elseif (contra_side($rule['grouping'])) {
+        }
+
+        // Whatever is left of a key, day or month that cancels itself out on one
+        // side alone - asked for by the rule, and done after the two-sided pass
+        // so anything that could be paired across has been.
+        if (!empty($rule['self_contra']) && ($rule['grouping'] === 'key' || period_len($rule['grouping']))) {
+            $len = period_len($rule['grouping']);
+            foreach (['ledger', 'bank'] as $sd) {
+                $rows  = $sd === 'ledger' ? $L : $B;
+                $field = $sd === 'ledger' ? $rule['key_left'] : $rule['key_right'];
+                $used  = $sd === 'ledger' ? $usedL : $usedB;
+                foreach (self_contra_sets($rows, $used, $len, $field) as $k => $set) {
+                    $when = $len === 10 ? date('j F Y', strtotime($k))
+                          : ($len ? date('F Y', strtotime($k . '-01')) : $k);
+                    $groupNo++;
+                    $insG->execute([$runId, $groupNo, (string)$rule['id'],
+                                    mb_substr($rule['name'] . ' - ' . $when . $tag . ' - cancels out', 0, 150),
+                                    0, 0, 'same']);
+                    $gid = $pdo->lastInsertId();
+                    foreach ($set as $r) {
+                        $insL->execute([$gid, $sd, $r['id'], $r['value']]);
+                        if ($sd === 'ledger') $usedL[$r['id']] = 1; else $usedB[$r['id']] = 1;
+                    }
+                    $made++;
+                }
+            }
+        }
+
+        if (contra_side($rule['grouping'])) {
             // equal and opposite entries on one side only
             $side  = contra_side($rule['grouping']);
             $isL   = $side === 'ledger';

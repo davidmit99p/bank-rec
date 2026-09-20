@@ -95,7 +95,8 @@ reorder.</p>
               fn($p) => ($nl[$p[0]] ?? $kf[$p[0]] ?? $p[0]) . ' = ' . ($nb[$p[1]] ?? $kf[$p[1]] ?? $p[1]), $agree))) ?>
         <?php endif; ?>
         <?= $r['sign_mode'] === 'opposite' ? '&middot; signs reversed' : '' ?>
-        <?= $r['link_desc'] ? '&middot; descriptions must agree' : '' ?></span>
+        <?= $r['link_desc'] ? '&middot; descriptions must agree' : '' ?>
+        <?= !empty($r['self_contra']) ? '&middot; also clears what cancels itself out on one side' : '' ?></span>
       <span style="margin-left:auto;display:flex;gap:.4rem">
         <form method="post"><input type="hidden" name="action" value="move">
           <input type="hidden" name="id" value="<?= (int)$r['id'] ?>">
