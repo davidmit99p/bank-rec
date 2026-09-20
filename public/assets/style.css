@@ -184,3 +184,7 @@ thead:has(.colfilters) th{position:static}
 .whoami a{color:var(--muted);text-decoration:none}
 .whoami a:hover{color:var(--accent)}
 .whoami .btn{padding:.2rem .5rem}
+
+/* the three-line position at the top of the Summary page */
+.position td,.position th{vertical-align:middle}
+.position tbody tr:last-child td{border-top:2px solid var(--line);font-weight:600}

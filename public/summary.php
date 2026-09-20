@@ -58,6 +58,32 @@ foreach ($months as $m) {
 $totL = array_sum(array_column($rows, 'l_total'));
 $totB = array_sum(array_column($rows, 'b_total'));
 
+// --- where the reconciliation stands, in three lines --------------------------
+//
+// Everything on both sides, what is still open, and the difference between the
+// two, which is what has been matched. Deliberately ignores the filters below:
+// it is a statement of position, not a view.
+function side_position($side)
+{
+    $sql = "SELECT COUNT(*) n,
+                   COALESCE(SUM(t.value), 0) total,
+                   COALESCE(SUM(CASE WHEN " . open_where('t') . " THEN 1 ELSE 0 END), 0) open_n,
+                   COALESCE(SUM(CASE WHEN " . open_where('t') . " THEN t.value ELSE 0 END), 0) open_total
+            FROM rec_txns t
+            WHERE " . file_where($side, 't') . not_split('t');
+    $r = db()->query($sql)->fetch();
+    return [
+        'all_n'      => (int)$r['n'],
+        'all_total'  => (float)$r['total'],
+        'open_n'     => (int)$r['open_n'],
+        'open_total' => (float)$r['open_total'],
+        'done_n'     => (int)$r['n'] - (int)$r['open_n'],
+        'done_total' => (float)$r['total'] - (float)$r['open_total'],
+    ];
+}
+$posL = side_position('ledger');
+$posB = side_position('bank');
+
 // --- the same thing as a file, for a working paper ---------------------------
 if (isset($_GET['csv'])) {
     $rec = current_rec();
@@ -95,7 +121,46 @@ $qs = array_filter(['show' => $show, 'in' => $wantIn ? '1' : '', 'out' => $wantO
 
 render_header('Summary');
 ?>
-<h1>Monthly summary</h1>
+<h1>Summary</h1>
+
+<?php
+  $lines = [
+    ['Total transaction value', 'all_n',  'all_total',  'Everything loaded on that side'],
+    ['Items not matched',       'open_n', 'open_total', 'Still to be matched in this reconciliation'],
+    ['Items matched',           'done_n', 'done_total', 'The first line less the second'],
+  ];
+?>
+<div class="panel">
+  <div class="side-head"><h2 style="margin:0">Where this stands</h2>
+    <span class="muted small">the whole reconciliation, whatever the filters below say</span></div>
+  <table class="position">
+    <thead><tr><th></th>
+      <th class="num" colspan="2"><?= h(side_label('ledger')) ?></th>
+      <th class="num" colspan="2"><?= h(side_label('bank')) ?></th>
+      <th class="num">Difference</th></tr>
+      <tr><th></th><th class="num small">items</th><th class="num small">value</th>
+        <th class="num small">items</th><th class="num small">value</th>
+        <th class="num small">value</th></tr></thead>
+    <tbody>
+    <?php foreach ($lines as [$label, $nKey, $vKey, $why]):
+        $d = $posL[$vKey] - $posB[$vKey]; ?>
+      <tr>
+        <td><b><?= h($label) ?></b><br><span class="small muted"><?= h($why) ?></span></td>
+        <td class="num"><?= number_format($posL[$nKey]) ?></td>
+        <td class="num <?= $posL[$vKey] < 0 ? 'neg' : '' ?>"><?= money($posL[$vKey]) ?></td>
+        <td class="num"><?= number_format($posB[$nKey]) ?></td>
+        <td class="num <?= $posB[$vKey] < 0 ? 'neg' : '' ?>"><?= money($posB[$vKey]) ?></td>
+        <td class="num <?= abs($d) < 0.005 ? '' : 'neg' ?>"><?= money(abs($d) < 0.005 ? 0 : $d) ?></td>
+      </tr>
+    <?php endforeach; ?>
+    </tbody>
+  </table>
+  <p class="small muted" style="margin:.5rem 0 0">Matched here means matched in this reconciliation; the
+    same item can be open in another. The difference on the second line is what the
+    <a href="pivot.php">Pivot</a> breaks down.</p>
+</div>
+
+<h2>Month by month</h2>
 <p class="muted">Each side totalled by month, with the difference between them. Click a month to see
   those transactions. The running column carries the difference forward, which is usually where an
   odd period shows itself.</p>
