@@ -110,7 +110,7 @@ function render_footer()
 </main>
 <footer class="site-footer">
   <p>Bank Reconciliation &middot; Entigy Group
-    <span class="muted small" title="What is deployed. If this is not what you expect, the latest push has not arrived yet."> &middot; <?= h(APP_VERSION) ?></span></p>
+    <span class="muted small" title="When the site last took an update. If this is older than you expect, the latest push has not arrived yet."> &middot; updated <?= h(deployed_at()) ?></span></p>
 </footer>
 </body>
 </html>
