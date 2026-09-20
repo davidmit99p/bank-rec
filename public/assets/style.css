@@ -188,3 +188,10 @@ thead:has(.colfilters) th{position:static}
 /* the three-line position at the top of the Summary page */
 .position td,.position th{vertical-align:middle}
 .position tbody tr:last-child td{border-top:2px solid var(--line);font-weight:600}
+
+/* "what would balance this?" - the suggestions under the ticked totals */
+.bal-panel{background:#f3f6fb;border-color:#d9e2ef}
+.bal-option{display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;padding:.35rem 0;border-top:1px solid #d9e2ef}
+.bal-option:first-of-type{border-top:0}
+.bal-rows{flex:1;min-width:16rem;font-size:.85rem}
+.bal-row{white-space:nowrap}

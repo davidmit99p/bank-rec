@@ -594,6 +594,10 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
         Match ticked items</button>
       <button class="btn" type="submit" name="action" value="unmatch" id="unmatchBtn" disabled
         style="display:none">Unmatch ticked lines</button>
+      <button class="btn ghost" type="button" id="balanceBtn"
+        data-left="<?= h(side_label('ledger')) ?>" data-right="<?= h(side_label('bank')) ?>"
+        title="Look through the items on this page for a set that closes the difference">
+        What would balance this?</button>
     </span>
   </div>
 
@@ -609,6 +613,8 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
     <span class="balance <?= abs($gap) < 0.005 ? 'ok' : 'off' ?>">Difference <span class="num"><?= money($gap) ?></span></span>
     <span class="muted small">for everything that fits the filters, on every page</span>
   </p>
+
+  <div class="panel bal-panel" id="balancePanel" hidden></div>
 
   <div class="sides">
 <?php
@@ -969,6 +975,7 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
   refreshHeadings();
 })();
 </script>
+<script src="assets/balance.js?v=<?= (int)@filemtime(__DIR__ . '/assets/balance.js') ?>"></script>
 <script>
 // Copy a column filter to the same-named column on the other side.
 //
