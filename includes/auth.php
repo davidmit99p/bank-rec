@@ -10,18 +10,26 @@
 // way a deploy that lands before the migration does not lock anybody out.
 // -----------------------------------------------------------------------------
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/central.php';
 
 const LOGIN_TRIES  = 5;      // wrong passwords before a pause
 const LOGIN_PAUSE  = 60;     // seconds to wait after that
 
-// Has migration_017 been run?
+// Where the people are. On an installation with several clients they are in the
+// central database, so one account reaches every client it is allowed. On a
+// single-database installation they sit in that database, as before.
+function auth_db()    { return central_on() ? central_db() : db(); }
+function auth_table() { return central_on() ? 'cen_users' : 'rec_users'; }
+
+// Is there anywhere to keep people yet? Centrally that means the central tables
+// exist; otherwise it means migration_017 has been run.
 function users_ready()
 {
     static $ok = null;
-    if ($ok === null) {
-        try { db()->query("SELECT id FROM rec_users LIMIT 1"); $ok = true; }
-        catch (Throwable $e) { $ok = false; }
-    }
+    if ($ok !== null) return $ok;
+    if (central_on()) return central_ready();          // asked afresh; see central_ready()
+    try { db()->query("SELECT id FROM rec_users LIMIT 1"); $ok = true; }
+    catch (Throwable $e) { $ok = false; }
     return $ok;
 }
 
@@ -35,7 +43,7 @@ function start_session()
 function any_users()
 {
     if (!users_ready()) return false;
-    return (int)db()->query("SELECT COUNT(*) FROM rec_users WHERE active = 1")->fetchColumn() > 0;
+    return (int)auth_db()->query("SELECT COUNT(*) FROM " . auth_table() . " WHERE active = 1")->fetchColumn() > 0;
 }
 
 // The person signed in, or null. Read once per request.
@@ -49,7 +57,7 @@ function current_user()
     start_session();
     $id = (int)($_SESSION['user_id'] ?? 0);
     if (!$id) return $user = null;
-    $st = db()->prepare("SELECT * FROM rec_users WHERE id = ? AND active = 1");
+    $st = auth_db()->prepare("SELECT * FROM " . auth_table() . " WHERE id = ? AND active = 1");
     $st->execute([$id]);
     $user = $st->fetch() ?: null;
     if (!$user) unset($_SESSION['user_id']);          // deleted or turned off while signed in
@@ -59,16 +67,26 @@ function current_user()
 function is_admin()
 {
     $u = current_user();
-    return $u && $u['role'] === 'admin';
+    return $u && ($u['role'] === 'admin' || $u['role'] === 'owner');
+}
+
+// The owner sets up clients. Only meaningful on a central installation.
+function is_owner()
+{
+    $u = current_user();
+    return $u && $u['role'] === 'owner';
 }
 
 // Every page calls this through layout.php. It sends you to the sign-in page
 // unless you are already there, or there are no users yet.
 function require_login()
 {
-    if (!users_ready()) return;                        // the change has not been run yet
     $here = basename($_SERVER['SCRIPT_NAME'] ?? '');
     if ($here === 'login.php') return;
+    // a central installation whose tables have not been made yet: the sign-in
+    // page makes them, and asks for the owner
+    if (central_on() && !central_ready()) { header('Location: login.php'); exit; }
+    if (!users_ready()) return;                        // the change has not been run yet
     // the change has been run but nobody exists: the first visitor makes the
     // administrator, rather than the site quietly staying open to anyone
     if (!any_users()) { header('Location: login.php'); exit; }
@@ -81,6 +99,12 @@ function require_login()
     // a password set by an administrator has to be changed before anything else
     if (!empty($u['must_change']) && $here !== 'password.php' && $here !== 'logout.php') {
         header('Location: password.php');
+        exit;
+    }
+    // and on an installation with several clients, one must be chosen before
+    // any page can show anything - every query goes to that client's database
+    if (central_on() && !current_client_id() && !in_array($here, ['clients.php', 'password.php', 'logout.php'], true)) {
+        header('Location: clients.php?choose=1');
         exit;
     }
 }
@@ -116,7 +140,7 @@ function attempt_login($username, $password)
     if ($wait = login_wait()) {
         return [false, 'Too many tries. Wait ' . $wait . ' seconds and try again.'];
     }
-    $st = db()->prepare("SELECT * FROM rec_users WHERE username = ? AND active = 1");
+    $st = auth_db()->prepare("SELECT * FROM " . auth_table() . " WHERE username = ? AND active = 1");
     $st->execute([trim((string)$username)]);
     $u = $st->fetch();
     if (!$u || !password_verify((string)$password, $u['password_hash'])) {
@@ -126,13 +150,13 @@ function attempt_login($username, $password)
     }
     // keep the hash up to date if PHP's default has moved on
     if (password_needs_rehash($u['password_hash'], PASSWORD_DEFAULT)) {
-        db()->prepare("UPDATE rec_users SET password_hash = ? WHERE id = ?")
+        auth_db()->prepare("UPDATE " . auth_table() . " SET password_hash = ? WHERE id = ?")
             ->execute([password_hash((string)$password, PASSWORD_DEFAULT), $u['id']]);
     }
     session_regenerate_id(true);                       // a fresh session id on sign-in
     $_SESSION['user_id'] = (int)$u['id'];
     unset($_SESSION['login_tries'], $_SESSION['login_last']);
-    db()->prepare("UPDATE rec_users SET last_login_at = NOW() WHERE id = ?")->execute([$u['id']]);
+    auth_db()->prepare("UPDATE " . auth_table() . " SET last_login_at = NOW() WHERE id = ?")->execute([$u['id']]);
     log_event('signed in', null, null, $u);
     return [true, null];
 }
@@ -140,7 +164,7 @@ function attempt_login($username, $password)
 function log_out()
 {
     $u = current_user();
-    if ($u) log_event('signed out', null, null, $u);
+    if ($u) account_log('signed out', null, $u);
     start_session();
     $_SESSION = [];
     session_destroy();
@@ -155,6 +179,9 @@ function log_out()
 function log_event($kind, $detail = null, $recId = null, $user = null)
 {
     if (!users_ready()) return;
+    // before a client is chosen there is no client database to write to, so
+    // signing in and out are recorded centrally
+    if (central_on() && !current_client_id()) { central_log($kind, $detail, $user); return; }
     try {
         $u = $user ?? current_user();
         db()->prepare("INSERT INTO rec_events (user_id, who, rec_id, kind, detail) VALUES (?,?,?,?,?)")
@@ -167,13 +194,37 @@ function log_event($kind, $detail = null, $recId = null, $user = null)
     }
 }
 
+// Anything about accounts and people rather than about a reconciliation:
+// centrally when there is a central database, otherwise in the one database
+// there is.
+function account_log($kind, $detail = null, $user = null)
+{
+    central_on() ? central_log($kind, $detail, $user) : log_event($kind, $detail, null, $user);
+}
+
+// The central log: signing in and out, and anything done above a single client.
+function central_log($kind, $detail = null, $user = null)
+{
+    if (!central_ready()) return;
+    try {
+        $u = $user ?? current_user();
+        central_db()->prepare("INSERT INTO cen_events (user_id, who, client_id, kind, detail)
+                               VALUES (?,?,?,?,?)")
+            ->execute([$u['id'] ?? null, $u['name'] ?? null, current_client_id(),
+                       mb_substr((string)$kind, 0, 40),
+                       $detail === null ? null : mb_substr((string)$detail, 0, 255)]);
+    } catch (Throwable $e) {
+        // the log is a record of work, not part of it
+    }
+}
+
 // "David Mitchell", for showing beside something that was done.
 function user_name($id)
 {
     if (!$id || !users_ready()) return '';
     static $cache = [];
     if (!array_key_exists($id, $cache)) {
-        $st = db()->prepare("SELECT name FROM rec_users WHERE id = ?");
+        $st = auth_db()->prepare("SELECT name FROM " . auth_table() . " WHERE id = ?");
         $st->execute([(int)$id]);
         $cache[$id] = $st->fetchColumn() ?: '';
     }
@@ -192,7 +243,7 @@ function current_user_id()
 function all_users()
 {
     if (!users_ready()) return [];
-    return db()->query("SELECT * FROM rec_users ORDER BY active DESC, name")->fetchAll();
+    return auth_db()->query("SELECT * FROM " . auth_table() . " ORDER BY active DESC, name")->fetchAll();
 }
 
 // [true, message] or [false, why]. $role is 'admin' or 'user'.
@@ -204,9 +255,10 @@ function create_user($username, $name, $password, $role, $mustChange = 1)
         return [false, 'A username is 3 to 60 characters: letters, numbers, dot, dash, underscore or @.'];
     }
     if (strlen((string)$password) < 8) return [false, 'A password must be at least 8 characters.'];
-    $role = $role === 'admin' ? 'admin' : 'user';
+    $allowed = central_on() ? ['owner', 'admin', 'user'] : ['admin', 'user'];
+    $role = in_array($role, $allowed, true) ? $role : 'user';
     try {
-        db()->prepare("INSERT INTO rec_users (username, name, password_hash, role, must_change)
+        auth_db()->prepare("INSERT INTO " . auth_table() . " (username, name, password_hash, role, must_change)
                        VALUES (?,?,?,?,?)")
             ->execute([$username, $name, password_hash((string)$password, PASSWORD_DEFAULT),
                        $role, $mustChange ? 1 : 0]);
@@ -214,14 +266,14 @@ function create_user($username, $name, $password, $role, $mustChange = 1)
         if ($e->getCode() === '23000') return [false, 'There is already someone with that username.'];
         throw $e;
     }
-    log_event('added a user', $username . ' (' . $role . ')');
+    account_log('added a user', $username . ' (' . $role . ')');
     return [true, $name . ' can now sign in.'];
 }
 
 function set_password($userId, $password, $mustChange = 0)
 {
     if (strlen((string)$password) < 8) return [false, 'A password must be at least 8 characters.'];
-    db()->prepare("UPDATE rec_users SET password_hash = ?, must_change = ? WHERE id = ?")
+    auth_db()->prepare("UPDATE " . auth_table() . " SET password_hash = ?, must_change = ? WHERE id = ?")
         ->execute([password_hash((string)$password, PASSWORD_DEFAULT), $mustChange ? 1 : 0, (int)$userId]);
     return [true, 'Password changed.'];
 }
@@ -233,8 +285,8 @@ function set_user_active($userId, $active)
     if (!$active && !other_admins_exist($userId)) {
         return [false, 'That is the only administrator, so it cannot be turned off.'];
     }
-    db()->prepare("UPDATE rec_users SET active = ? WHERE id = ?")->execute([$active ? 1 : 0, $userId]);
-    log_event($active ? 'turned a user on' : 'turned a user off', user_name($userId));
+    auth_db()->prepare("UPDATE " . auth_table() . " SET active = ? WHERE id = ?")->execute([$active ? 1 : 0, $userId]);
+    account_log($active ? 'turned a user on' : 'turned a user off', user_name($userId));
     return [true, 'Saved.'];
 }
 
@@ -245,8 +297,8 @@ function set_user_role($userId, $role)
     if ($role !== 'admin' && !other_admins_exist($userId)) {
         return [false, 'That is the only administrator, so the role cannot be changed.'];
     }
-    db()->prepare("UPDATE rec_users SET role = ? WHERE id = ?")->execute([$role, $userId]);
-    log_event('changed a role', user_name($userId) . ' -> ' . $role);
+    auth_db()->prepare("UPDATE " . auth_table() . " SET role = ? WHERE id = ?")->execute([$role, $userId]);
+    account_log('changed a role', user_name($userId) . ' -> ' . $role);
     return [true, 'Saved.'];
 }
 
@@ -254,7 +306,8 @@ function set_user_role($userId, $role)
 // locking everybody out.
 function other_admins_exist($exceptId)
 {
-    $st = db()->prepare("SELECT COUNT(*) FROM rec_users WHERE role = 'admin' AND active = 1 AND id <> ?");
+    $st = auth_db()->prepare("SELECT COUNT(*) FROM " . auth_table()
+                              . " WHERE role IN ('admin','owner') AND active = 1 AND id <> ?");
     $st->execute([(int)$exceptId]);
     return (int)$st->fetchColumn() > 0;
 }

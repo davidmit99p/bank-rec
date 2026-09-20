@@ -40,19 +40,47 @@ function config($key = null)
     return $key === null ? $config : ($config[$key] ?? null);
 }
 
+// The database this page is working in.
+//
+// Ordinarily the single one named in the config file. On an installation with
+// several clients it is whichever client you are signed in to - see
+// includes/central.php - and nothing here can reach another client's data,
+// because the connection does not go there.
+// The open connection, kept in one place so it can be let go when the client
+// changes. A static inside db() itself could never be cleared.
+function db_handle($pdo = null, $clear = false)
+{
+    static $held;
+    if ($clear) { $held = null; return null; }
+    if ($pdo !== null) $held = $pdo;
+    return $held;
+}
+
 function db()
 {
-    static $pdo;
+    $pdo = db_handle();
     if ($pdo === null) {
-        $d = config('db');
-        $dsn = "mysql:host={$d['host']};dbname={$d['name']};charset={$d['charset']}";
+        $d = function_exists('active_db_config') ? active_db_config() : config('db');
+        if (!$d) {
+            // signed in, but no client chosen yet
+            throw new RuntimeException('No client has been chosen for this session.');
+        }
+        $dsn = "mysql:host={$d['host']};dbname={$d['name']};charset=" . ($d['charset'] ?? 'utf8mb4');
         $pdo = new PDO($dsn, $d['user'], $d['pass'], [
             PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::ATTR_EMULATE_PREPARES   => false,
         ]);
+        db_handle($pdo);
     }
     return $pdo;
+}
+
+// Let the connection go, so the next db() opens the newly chosen client's.
+// Always followed by a redirect, so nothing else is holding what it read.
+function reset_db()
+{
+    db_handle(null, true);
 }
 
 // Short, readable reference for a matching run, e.g. RUN-20260828-K7Q2

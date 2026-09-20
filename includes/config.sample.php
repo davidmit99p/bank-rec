@@ -17,4 +17,23 @@ return [
     'app' => [
         'name' => 'Bank Reconciliation',
     ],
+
+    // -------------------------------------------------------------------------
+    // SEVERAL CLIENTS, one installation. Leave both of these out and the tool
+    // works exactly as above: one database, its own users.
+    //
+    // 'central' is a small database holding the people and the list of clients.
+    // 'clients' holds each client's database details, with a short key that the
+    // Clients page refers to - a client's password is never kept in a database.
+    // -------------------------------------------------------------------------
+    // 'central' => [
+    //     'host' => 'localhost', 'name' => 'entigy_central',
+    //     'user' => 'central_user', 'pass' => 'CHANGE_ME', 'charset' => 'utf8mb4',
+    // ],
+    // 'clients' => [
+    //     'entigy' => [
+    //         'host' => 'localhost', 'name' => 'entigy_recon',
+    //         'user' => 'entigy_recon_user', 'pass' => 'CHANGE_ME', 'charset' => 'utf8mb4',
+    //     ],
+    // ],
 ];

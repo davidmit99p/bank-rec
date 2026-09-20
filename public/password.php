@@ -19,7 +19,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($new === $now)       throw new RuntimeException('The new password is the same as the old one.');
         [$ok, $msg] = set_password($u['id'], $new, 0);
         if (!$ok) throw new RuntimeException($msg);
-        log_event('changed own password');
+        account_log('changed own password');
         flash('Password changed.');
         header('Location: index.php');
         exit;

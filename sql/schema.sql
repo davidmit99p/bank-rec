@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS rec_rules (
     -- how the two sides are paired up
     date_tol     INT           NOT NULL DEFAULT 3,      -- days apart allowed
     sign_mode    VARCHAR(10)   NOT NULL DEFAULT 'same', -- same | opposite
-    grouping     VARCHAR(20)   NOT NULL DEFAULT 'one',  -- one | many_left | many_right
+    `grouping`   VARCHAR(20)   NOT NULL DEFAULT 'one',  -- one | many_left | many_right
     max_group    INT           NOT NULL DEFAULT 4,
     link_desc    TINYINT(1)    NOT NULL DEFAULT 0,      -- also require descriptions to look alike
 

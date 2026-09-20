@@ -36,6 +36,7 @@ function render_header($title = '')
         'recs.php'         => 'Reconciliations',
         'shelf.php'        => 'Shelf',
     ];
+    if (central_on()) $nav['clients.php'] = 'Clients';
     if (is_admin()) $nav['users.php'] = 'Users';
     ?>
 <!doctype html>
@@ -75,6 +76,10 @@ function render_header($title = '')
 <?php endif; ?>
 <?php if ($me = current_user()): ?>
   <span class="whoami">
+    <?php if (central_on() && ($client = current_client())): ?>
+      <a href="clients.php" title="Work on a different client"><b><?= h($client['name']) ?></b></a>
+      <span class="muted">&middot;</span>
+    <?php endif; ?>
     <a href="password.php" title="Change your password"><?= h($me['name']) ?></a>
     <a class="btn ghost small" href="logout.php">Sign out</a>
   </span>

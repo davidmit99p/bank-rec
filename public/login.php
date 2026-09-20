@@ -6,7 +6,11 @@
 // navigation and the reconciliation picker, and neither means anything until
 // somebody is signed in.
 require_once __DIR__ . '/../includes/db.php';
+require_once __DIR__ . '/../includes/central.php';
 require_once __DIR__ . '/../includes/auth.php';
+
+// on a central installation the tables are made on first sight of the page
+if (central_on() && !central_ready()) central_install();
 
 $back  = (string)($_GET['back'] ?? $_POST['back'] ?? '');
 // only ever return to a page of this app
@@ -29,12 +33,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new RuntimeException('The two passwords are not the same.');
             }
             [$ok, $msg] = create_user($_POST['username'] ?? '', $_POST['name'] ?? '',
-                                      $_POST['password'] ?? '', 'admin', 0);
+                                      $_POST['password'] ?? '', central_on() ? 'owner' : 'admin', 0);
             if (!$ok) throw new RuntimeException($msg);
             [$ok, $msg] = attempt_login($_POST['username'] ?? '', $_POST['password'] ?? '');
             if (!$ok) throw new RuntimeException($msg);
-            flash('Signed in as the administrator. Add anyone else from the Users page.');
-            header('Location: users.php');
+            flash(central_on()
+                ? 'Signed in as the owner. Add your first client here.'
+                : 'Signed in as the administrator. Add anyone else from the Users page.');
+            header('Location: ' . (central_on() ? 'clients.php' : 'users.php'));
             exit;
         }
         [$ok, $msg] = attempt_login($_POST['username'] ?? '', $_POST['password'] ?? '');
@@ -62,7 +68,7 @@ $appName = config('app')['name'] ?? 'Bank Reconciliation';
 <body>
 <header class="site-header"><span class="brand">&#9884; <?= h($appName) ?></span></header>
 <div class="container" style="max-width:26rem">
-  <h1><?= $first ? 'Create the administrator' : 'Sign in' ?></h1>
+  <h1><?= $first ? ($ready && central_on() ? 'Create the owner' : 'Create the administrator') : 'Sign in' ?></h1>
 
   <?php if (!$ready): ?>
     <div class="panel" style="background:#fdf6e6;border-color:#e8d9a8">
