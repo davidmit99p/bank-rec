@@ -531,6 +531,32 @@ function self_contra_sets(array $rows, array $used, $len, $field)
     return $out;
 }
 
+// Everything a one-sided clear would take for this rule on one side, as
+// [['key' => ..., 'tag' => the agreeing values, 'rows' => [...]], ...].
+//
+// Grouped by the fields that must agree FIRST, so one account's reversal is
+// never netted against another's, and then by the rule's key, day or month.
+// Kept in one place because the run and the Test button must answer the same.
+function self_contra_candidates(array $rule, array $rows, array $used, $side)
+{
+    if (empty($rule['self_contra'])) return [];
+    if ($rule['grouping'] !== 'key' && !period_len($rule['grouping'])) return [];
+
+    $len    = period_len($rule['grouping']);
+    $field  = $side === 'ledger' ? ($rule['key_left'] ?? '') : ($rule['key_right'] ?? '');
+    $pairs  = agree_pairs($rule);
+    $fields = $pairs ? array_column($pairs, $side === 'ledger' ? 0 : 1) : [];
+    $parts  = $fields ? partition_by_agreement($rows, $fields) : ['' => $rows];
+
+    $out = [];
+    foreach ($parts as $tag => $part) {
+        foreach (self_contra_sets($part, $used, $len, $field) as $k => $set) {
+            $out[] = ['key' => (string)$k, 'tag' => (string)$tag, 'rows' => $set];
+        }
+    }
+    return $out;
+}
+
 // Has migration_016 been run? Until it has, the setting is not offered.
 function self_contra_ready()
 {
@@ -762,12 +788,10 @@ function rule_test(array $rule)
         $out['off']     = $off;
 
         // and then the ones that cancel themselves out on one side, if asked for
-        if (!empty($rule['self_contra'])) {
-            foreach ([['ledger', $L, $tookL, $rule['key_left']],
-                      ['bank',   $B, $tookB, $rule['key_right']]] as [$sd, $rows, $took, $field]) {
-                foreach (self_contra_sets($rows, $took, $len, $field) as $k => $set) {
-                    $out['contras'][] = [$sd, $k, count($set)];
-                }
+        foreach ([['ledger', $L, $tookL], ['bank', $B, $tookB]] as [$sd, $rows, $took]) {
+            foreach (self_contra_candidates($rule, $rows, $took, $sd) as $c) {
+                $out['contras'][] = [$sd, $c['key'] . ($c['tag'] !== '' ? ' (' . $c['tag'] . ')' : ''),
+                                     count($c['rows'])];
             }
         }
     }
@@ -879,32 +903,6 @@ function run_rules($runId)
             }
         }
 
-        // Whatever is left of a key, day or month that cancels itself out on one
-        // side alone - asked for by the rule, and done after the two-sided pass
-        // so anything that could be paired across has been.
-        if (!empty($rule['self_contra']) && ($rule['grouping'] === 'key' || period_len($rule['grouping']))) {
-            $len = period_len($rule['grouping']);
-            foreach (['ledger', 'bank'] as $sd) {
-                $rows  = $sd === 'ledger' ? $L : $B;
-                $field = $sd === 'ledger' ? $rule['key_left'] : $rule['key_right'];
-                $used  = $sd === 'ledger' ? $usedL : $usedB;
-                foreach (self_contra_sets($rows, $used, $len, $field) as $k => $set) {
-                    $when = $len === 10 ? date('j F Y', strtotime($k))
-                          : ($len ? date('F Y', strtotime($k . '-01')) : $k);
-                    $groupNo++;
-                    $insG->execute([$runId, $groupNo, (string)$rule['id'],
-                                    mb_substr($rule['name'] . ' - ' . $when . $tag . ' - cancels out', 0, 150),
-                                    0, 0, 'same']);
-                    $gid = $pdo->lastInsertId();
-                    foreach ($set as $r) {
-                        $insL->execute([$gid, $sd, $r['id'], $r['value']]);
-                        if ($sd === 'ledger') $usedL[$r['id']] = 1; else $usedB[$r['id']] = 1;
-                    }
-                    $made++;
-                }
-            }
-        }
-
         if (contra_side($rule['grouping'])) {
             // equal and opposite entries on one side only
             $side  = contra_side($rule['grouping']);
@@ -982,6 +980,33 @@ function run_rules($runId)
             }
         }
       }
+
+        // Then, once for the whole rule, whatever cancels itself out on one side
+        // alone. Outside the loop above because that only runs where both sides
+        // have something, and these have nothing opposite them at all.
+        if (!empty($rule['self_contra'])) {
+            $len = period_len($rule['grouping']);
+            foreach (['ledger' => $allL, 'bank' => $allB] as $sd => $rows) {
+                $used = $sd === 'ledger' ? $usedL : $usedB;
+                foreach (self_contra_candidates($rule, $rows, $used, $sd) as $c) {
+                    $when = $len === 10 ? date('j F Y', strtotime($c['key']))
+                          : ($len ? date('F Y', strtotime($c['key'] . '-01')) : $c['key']);
+                    $groupNo++;
+                    $insG->execute([$runId, $groupNo, (string)$rule['id'],
+                                    mb_substr($rule['name'] . ' - ' . $when
+                                              . ($c['tag'] !== '' ? ' - ' . $c['tag'] : '')
+                                              . ' - cancels out', 0, 150),
+                                    0, 0, 'same']);
+                    $gid = $pdo->lastInsertId();
+                    foreach ($c['rows'] as $r) {
+                        $insL->execute([$gid, $sd, $r['id'], $r['value']]);
+                        if ($sd === 'ledger') $usedL[$r['id']] = 1; else $usedB[$r['id']] = 1;
+                    }
+                    $made++;
+                }
+            }
+        }
+
         $perRule[] = ['rule' => $rule, 'made' => $made, 'too_big' => $tooBig];
     }
     return $perRule;
