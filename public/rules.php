@@ -5,10 +5,12 @@ require_once __DIR__ . '/../includes/matcher.php';
 
 if (($_POST['action'] ?? '') === 'toggle') {
     db()->prepare("UPDATE rec_rules SET active = 1 - active WHERE id = ?")->execute([(int)$_POST['id']]);
+    log_event('turned a rule on or off', 'rule ' . (int)$_POST['id']);
     header('Location: rules.php'); exit;
 }
 if (($_POST['action'] ?? '') === 'delete') {
     db()->prepare("DELETE FROM rec_rules WHERE id = ?")->execute([(int)$_POST['id']]);
+    log_event('deleted a rule', 'rule ' . (int)$_POST['id']);
     flash('Rule deleted. Matches already finalised under it keep their rule number.');
     header('Location: rules.php'); exit;
 }

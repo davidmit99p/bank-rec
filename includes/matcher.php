@@ -10,6 +10,7 @@ require_once __DIR__ . '/files.php';
 require_once __DIR__ . '/matchstate.php';
 require_once __DIR__ . '/context.php';
 require_once __DIR__ . '/splits.php';
+require_once __DIR__ . '/auth.php';
 
 // The choices offered on the rule form ---------------------------------------
 function desc_ops() {
@@ -1123,7 +1124,12 @@ function finalise_run($runId)
             $carried = count($notYet);
         }
 
-        $pdo->prepare("UPDATE rec_runs SET status='finalised', finalised_at=NOW() WHERE id=?")->execute([$runId]);
+        if (users_ready()) {
+            $pdo->prepare("UPDATE rec_runs SET status='finalised', finalised_at=NOW(), finalised_by=? WHERE id=?")
+                ->execute([current_user_id(), $runId]);
+        } else {
+            $pdo->prepare("UPDATE rec_runs SET status='finalised', finalised_at=NOW() WHERE id=?")->execute([$runId]);
+        }
         $pdo->commit();
 
         $msg = count($groups) . " matches committed, covering {$count} transactions.";

@@ -81,6 +81,7 @@ try {
 
             if (session_status() === PHP_SESSION_NONE) session_start();
             $_SESSION['rec_id'] = $done['rec_id'];
+            log_event('made a quick reconciliation', $plan['name'], $done['rec_id']);
             $c = $done['counts'];
             $rules = (int)db()->query("SELECT COUNT(*) FROM rec_rules WHERE active = 1 AND rec_id IS NULL")->fetchColumn();
             flash('Created ' . $plan['name'] . ': ' . number_format($c['left']['n']) . ' transactions from '

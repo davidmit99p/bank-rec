@@ -132,6 +132,7 @@ try {
 
         $n = insert_transactions($fileId, $txns, $name);
         @unlink($path);
+        log_event('imported a file', $name . ' -> ' . $file['name'] . ', ' . $n . ' transactions');
         flash("Imported {$n} transactions from " . $name . ' into ' . $file['name']
               . ($skipped ? " ({$skipped} rows skipped - no usable date or value)." : '.'));
         header('Location: transactions.php');
@@ -141,6 +142,7 @@ try {
     // --- removing a whole file that was loaded earlier -----------------------
     if ($stage === 'remove_import') {
         [$ok, $msg] = delete_import((int)($_POST['import_id'] ?? 0));
+        if ($ok) log_event('removed an import', $msg);
         flash($msg);
         if (!$ok) $error = $msg;
         else { header('Location: import.php'); exit; }

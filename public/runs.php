@@ -51,8 +51,12 @@ rule number that matched it, so you can always see why something was matched.</p
     <tr>
       <td><a href="review.php?run=<?= (int)$r['id'] ?>"><?= h($r['run_ref']) ?></a></td>
       <td><span class="tag"><?= h($r['status']) ?></span></td>
-      <td class="small"><?= h($r['created_at']) ?></td>
-      <td class="small"><?= h($r['finalised_at'] ?: '') ?></td>
+      <td class="small"><?= h($r['created_at']) ?>
+        <?php if ($who = user_name($r['created_by'] ?? null)): ?>
+          <br><span class="muted"><?= h($who) ?></span><?php endif; ?></td>
+      <td class="small"><?= h($r['finalised_at'] ?: '') ?>
+        <?php if ($who = user_name($r['finalised_by'] ?? null)): ?>
+          <br><span class="muted"><?= h($who) ?></span><?php endif; ?></td>
       <td class="num"><?= (int)$r['groups_n'] ?></td>
       <td class="num"><?= (int)$r['ledger_n'] ?></td>
       <td class="num"><?= (int)$r['bank_n'] ?></td>

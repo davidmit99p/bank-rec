@@ -12,6 +12,7 @@ $error = null;
 if (($_POST['action'] ?? '') === 'unmatch_group') {
     $gid = (int)$_POST['group_id'];
     $n = unmatch_whole_group($gid);
+    log_event('unmatched a whole match', $n . ' transactions');
     flash("Match undone. {$n} transactions are open again.");
     header('Location: matches.php?' . http_build_query($_POST['back'] ?? []));
     exit;
@@ -19,6 +20,7 @@ if (($_POST['action'] ?? '') === 'unmatch_group') {
 
 if (($_POST['action'] ?? '') === 'unmatch_selected') {
     [$ok, $msg] = unmatch_selection($_POST['ledger'] ?? [], $_POST['bank'] ?? []);
+    if ($ok) log_event('unmatched ticked lines', $msg);
     if ($ok) {
         flash($msg);
         header('Location: matches.php?' . http_build_query($_POST['back'] ?? []));

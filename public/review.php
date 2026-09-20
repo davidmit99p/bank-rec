@@ -18,6 +18,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $run['status'] === 'draft') {
     if ($action === 'discard') {
         $pdo->prepare("DELETE FROM rec_match_groups WHERE run_id = ?")->execute([$runId]);
         $pdo->prepare("UPDATE rec_runs SET status='discarded' WHERE id = ?")->execute([$runId]);
+        log_event('discarded a run', $run['run_ref']);
         flash('Run ' . $run['run_ref'] . ' discarded. Nothing was committed.');
         header('Location: transactions.php');
         exit;
@@ -67,7 +68,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $run['status'] === 'draft') {
         // the fallback above refused to save - fall through and redisplay
     } elseif ($action === 'finalise') {
         [$ok, $msg] = finalise_run($runId);
-        if ($ok) { flash($msg); header('Location: transactions.php'); exit; }
+        if ($ok) {
+            log_event('finalised a run', $run['run_ref'] . ': ' . $msg);
+            flash($msg);
+            header('Location: transactions.php');
+            exit;
+        }
         $error = $msg;
     } else {
         // "sort" is just a save that keeps your ticks and comes back in a

@@ -5,8 +5,11 @@ require_once __DIR__ . '/splits.php';
 require_once __DIR__ . '/files.php';
 require_once __DIR__ . '/matchstate.php';
 require_once __DIR__ . '/extras.php';
+require_once __DIR__ . '/auth.php';
 
-// Switching reconciliation redirects, so it must happen before any output.
+// Both of these can redirect, so they must happen before any output. Signing in
+// comes first: there is no point switching reconciliation for a stranger.
+require_login();
 handle_rec_switch();
 
 function render_header($title = '')
@@ -33,6 +36,7 @@ function render_header($title = '')
         'recs.php'         => 'Reconciliations',
         'shelf.php'        => 'Shelf',
     ];
+    if (is_admin()) $nav['users.php'] = 'Users';
     ?>
 <!doctype html>
 <html lang="en">
@@ -68,6 +72,12 @@ function render_header($title = '')
       <?php endforeach; ?>
     </select>
   </form>
+<?php endif; ?>
+<?php if ($me = current_user()): ?>
+  <span class="whoami">
+    <a href="password.php" title="Change your password"><?= h($me['name']) ?></a>
+    <a class="btn ghost small" href="logout.php">Sign out</a>
+  </span>
 <?php endif; ?>
 </header>
 <main class="container">

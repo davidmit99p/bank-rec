@@ -178,3 +178,9 @@ thead:has(.colfilters) th{position:static}
 .mhead{display:flex;flex-wrap:wrap;gap:.3rem;align-items:center;margin-bottom:.3rem;padding-bottom:.25rem;
   border-bottom:1px solid var(--line);white-space:nowrap;font-size:.85rem}
 .mhead select{width:auto;padding:.15rem .3rem;font-size:.82rem}
+
+/* who is signed in, at the end of the header */
+.whoami{display:flex;align-items:center;gap:.5rem;font-size:.85rem;color:var(--muted);white-space:nowrap}
+.whoami a{color:var(--muted);text-decoration:none}
+.whoami a:hover{color:var(--accent)}
+.whoami .btn{padding:.2rem .5rem}

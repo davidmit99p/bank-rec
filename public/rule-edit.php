@@ -112,12 +112,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $set = implode(', ', array_map(fn($c) => "`$c` = :$c", $names));
         $st = db()->prepare("UPDATE rec_rules SET $set WHERE id = :id");
         $st->execute($vals + ['id' => $id]);
+        log_event('changed a rule', 'rule ' . $id . ': ' . $vals['name']);
         flash("Rule {$id} saved.");
     } else {
         $st = db()->prepare("INSERT INTO rec_rules (`" . implode('`,`', $names) . "`)
                              VALUES (:" . implode(', :', $names) . ")");
         $st->execute($vals);
-        flash('Rule ' . db()->lastInsertId() . ' created.');
+        $newId = db()->lastInsertId();
+        log_event('created a rule', 'rule ' . $newId . ': ' . $vals['name']);
+        flash('Rule ' . $newId . ' created.');
     }
     header('Location: rules.php');
     exit;

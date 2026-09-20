@@ -14,7 +14,11 @@ function current_draft($create = false)
                      . " ORDER BY id DESC LIMIT 1")->fetch();
     if ($r || !$create) return $r ?: null;
     $ref = make_run_ref();
-    if (recs_ready()) {
+    // who opened it, when there is such a thing as a signed-in person
+    if (recs_ready() && users_ready()) {
+        $pdo->prepare("INSERT INTO rec_runs (run_ref, rec_id, created_by) VALUES (?,?,?)")
+            ->execute([$ref, rec_id(), current_user_id()]);
+    } elseif (recs_ready()) {
         $pdo->prepare("INSERT INTO rec_runs (run_ref, rec_id) VALUES (?,?)")->execute([$ref, rec_id()]);
     } else {
         $pdo->prepare("INSERT INTO rec_runs (run_ref) VALUES (?)")->execute([$ref]);
@@ -84,6 +88,7 @@ if (($_POST['action'] ?? '') === 'process') {
     $run = current_draft(true);
     $result = run_rules($run['id']);
     $made = array_sum(array_column($result, 'made'));
+    log_event('processed rules', $made . ' suggested in ' . $run['run_ref']);
     $msg  = $made
         ? "{$made} matches suggested by the rules. Review them and finalise."
         : 'The rules did not find anything new to match.';
@@ -188,6 +193,8 @@ if (($_POST['action'] ?? '') === 'manual') {
             'both'   => describe_shared_filters($was),
         ]);
 
+        log_event($oneSided ? 'matched a contra by hand' : 'matched by hand',
+                  money($oneSided ? 0 : $lTot) . ' in ' . $run['run_ref']);
         flash($oneSided
             ? 'Contra added to ' . $run['run_ref'] . ' - ' . (count($lRows) + count($bRows))
               . ' entries that cancel each other out. It will be committed when you finalise.'

@@ -43,6 +43,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare("INSERT INTO rec_files (name, notes, active, " . implode(', ', $keys) . ")
                                VALUES (?,?,?,$qs)")
                     ->execute(array_merge([$name, $notes, $act], $ex));
+                log_event('created a file', $name);
                 flash('Created ' . $name . '. You can import into it now.');
             }
             header('Location: files.php');
@@ -62,6 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     . 'first.');
             }
             $pdo->prepare("DELETE FROM rec_files WHERE id = ?")->execute([$id]);
+            log_event('deleted a file', $file['name'] ?? ('#' . (int)($_POST['id'] ?? 0)));
             flash('File deleted.');
             header('Location: files.php');
             exit;
