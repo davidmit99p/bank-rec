@@ -6,6 +6,7 @@ require_once __DIR__ . '/files.php';
 require_once __DIR__ . '/matchstate.php';
 require_once __DIR__ . '/extras.php';
 require_once __DIR__ . '/auth.php';
+require_once __DIR__ . '/migrate.php';
 
 // Both of these can redirect, so they must happen before any output. Signing in
 // comes first: there is no point switching reconciliation for a stranger.
@@ -38,6 +39,7 @@ function render_header($title = '')
     ];
     if (central_on()) $nav['clients.php'] = 'Clients';
     if (is_admin()) $nav['users.php'] = 'Users';
+    if (is_admin()) $nav['database.php'] = 'Database';
     ?>
 <!doctype html>
 <html lang="en">
@@ -89,6 +91,15 @@ function render_header($title = '')
 <?php foreach ((array)flash() as $m): ?>
   <p class="flash"><?= h($m) ?></p>
 <?php endforeach; ?>
+<?php
+// A change to the shape of the database arrives with the code. Say so once,
+// to whoever can do something about it, rather than letting a page fail later.
+if (is_admin() && ($pending = changes_waiting())): ?>
+  <p class="flash" style="background:#fdf6e6;border-color:#e8d9a8;color:var(--ink)">
+    <b><?= number_format($pending) ?> database change<?= $pending === 1 ? '' : 's' ?></b>
+    came with the latest version and <?= $pending === 1 ? 'is' : 'are' ?> waiting.
+    <a href="database.php">Apply <?= $pending === 1 ? 'it' : 'them' ?></a>.</p>
+<?php endif; ?>
 <?php
 }
 
