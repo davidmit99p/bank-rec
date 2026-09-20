@@ -7,6 +7,7 @@ require_once __DIR__ . '/matchstate.php';
 require_once __DIR__ . '/extras.php';
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/migrate.php';
+require_once __DIR__ . '/version.php';
 
 // Both of these can redirect, so they must happen before any output. Signing in
 // comes first: there is no point switching reconciliation for a stranger.
@@ -108,7 +109,8 @@ function render_footer()
     ?>
 </main>
 <footer class="site-footer">
-  <p>Bank Reconciliation &middot; Entigy Group</p>
+  <p>Bank Reconciliation &middot; Entigy Group
+    <span class="muted small" title="What is deployed. If this is not what you expect, the latest push has not arrived yet."> &middot; <?= h(APP_VERSION) ?></span></p>
 </footer>
 </body>
 </html>
