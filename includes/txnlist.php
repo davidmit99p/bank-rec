@@ -235,6 +235,8 @@ function read_column_filters($side, $prefix, array $src)
 //   !(blank)    has something in it
 //   100         the amount, either sign         (value column)
 //   =-100       exactly that, sign and all
+//   !100        anything but 100, either sign
+//   !=0  <>0    anything but exactly that
 //   >100  <100  >=100  <=100
 function column_filter_sql($col, $v)
 {
@@ -242,11 +244,15 @@ function column_filter_sql($col, $v)
 
     if ($col === 'value') {
         $n = str_replace(',', '', $v);
-        if (preg_match('/^(>=|<=|>|<|=)?\s*(-?\d*\.?\d+)$/', $n, $m)) {
+        // the longer operators first, so "!=" is not read as "!" followed by "="
+        if (preg_match('/^(>=|<=|<>|!=|>|<|=|!)?\s*(-?\d*\.?\d+)$/', $n, $m)) {
             $num = (float)$m[2];
             switch ($m[1]) {
-                case '':   return ['ABS(ABS(t.value) - ?) < 0.005', [abs($num)]];
-                case '=':  return ['ABS(t.value - ?) < 0.005', [$num]];
+                case '':   return ['ABS(ABS(t.value) - ?) < 0.005', [abs($num)]];      // either sign
+                case '=':  return ['ABS(t.value - ?) < 0.005', [$num]];                // exactly
+                case '!':  return ['ABS(ABS(t.value) - ?) >= 0.005', [abs($num)]];     // not, either sign
+                case '!=':
+                case '<>': return ['ABS(t.value - ?) >= 0.005', [$num]];               // not exactly
                 default:   return ["t.value {$m[1]} ?", [$num]];
             }
         }
@@ -283,6 +289,8 @@ function describe_side_filters($side, array $p)
         $name = $labels[$col] ?? $col;
         if (strcasecmp($v, '(blank)') === 0)           $out[] = "{$name} is blank";
         elseif (strcasecmp($v, '!(blank)') === 0)      $out[] = "{$name} is not blank";
+        elseif ($col === 'value' && preg_match('/^(!=|<>)\s*(.+)$/', $v, $mm)) $out[] = "{$name} is not {$mm[2]}";
+        elseif ($col === 'value' && preg_match('/^!\s*([-\d.,]+)$/', $v, $mm))  $out[] = "{$name} is not +/- {$mm[1]}";
         elseif ($v[0] === '=' && strlen($v) > 1)       $out[] = "{$name} is " . substr($v, 1);
         elseif ($v[0] === '!' && strlen($v) > 1)       $out[] = "{$name} does not contain " . substr($v, 1);
         elseif ($v[0] === '>' || $v[0] === '<')         $out[] = "{$name} {$v}";

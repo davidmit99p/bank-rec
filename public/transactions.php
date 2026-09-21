@@ -733,7 +733,7 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
                        . ' data-twin="' . h(mb_strtolower(trim($twin))) . '"'
                        . ' value="' . h($colf[$col] ?? '') . '" placeholder="' . h($ph) . '"'
                        . ' title="Type and press Enter. =exact  !not  (blank)  !(blank) for not blank'
-                       . ($col === 'value' ? '  100 either sign  =-100  >100  <100' : '') . '"'
+                       . ($col === 'value' ? '  100 either sign  =-100  >100  <100  !100 not either sign  !=0 not exactly' : '') . '"'
                        . '></th>';
               };
               if ($tickFirst) echo '<th></th>';
