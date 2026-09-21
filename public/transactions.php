@@ -563,7 +563,7 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
   <button class="btn ghost" type="submit">Filter</button>
   <a class="btn ghost" href="transactions.php">Clear all</a>
   <label style="margin:0 0 .45rem;color:var(--ink);white-space:nowrap"
-         title="A column filter typed on one side is copied to the column of the same name on the other side. Clearing only clears that side.">
+         title="A column filter typed on one side is copied to the column of the same name on the other side, and clearing it clears the copy too. A different filter on the other side is left alone.">
     <input type="checkbox" id="mirrorFilters" style="width:auto" checked> Copy column filters to the other side</label>
   <?php if ($show !== 'open'): ?>
     <span class="muted small" style="flex:1;min-width:16rem">Matched items are greyed, and carry their
@@ -648,7 +648,8 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
             unset($keep[$field], $keep[$pfx . 'p']);
             foreach (array_keys($keep) as $k) if (str_starts_with($k, $pfx . 'f_')) unset($keep[$k]);
         ?>
-          <a class="btn ghost" href="?<?= h(http_build_query($keep)) ?>" title="Clear this side's search and column filters">Clear</a>
+          <a class="btn ghost clearside" data-form="<?= $formId ?>" href="?<?= h(http_build_query($keep)) ?>"
+             title="Clear this side's search and column filters">Clear</a>
         <?php endif; ?>
         <?php
           // the download takes the same filters as the screen, so what comes out
@@ -979,9 +980,9 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
 <script>
 // Copy a column filter to the same-named column on the other side.
 //
-// Only what was typed or changed on this visit is copied, and only when it has
-// something in it - so clearing a filter clears that side alone, and a filter
-// deliberately removed from the other side is not put straight back.
+// Only what was typed or changed on this visit is copied. Clearing is copied
+// too, but only where the other side holds the very same filter - that is, it
+// was a copy. A different filter set on the other side on purpose is left alone.
 (function () {
   var box = document.getElementById('mirrorFilters');
   if (!box) return;
@@ -996,11 +997,12 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
     form.addEventListener('submit', function () {
       if (!box.checked) return;
       document.querySelectorAll('input.colf[form="' + formId + '"]').forEach(function (mine) {
-        var v = mine.value.trim();
-        if (v === '' || mine.value === mine.defaultValue) return;
-        var other = document.querySelector('input.colf[data-twin="' + CSS.escape(mine.dataset.twin)
-                                          + '"]:not([form="' + formId + '"])');
+        if (mine.value === mine.defaultValue) return;        // not touched on this visit
+        var other = twinOf(mine, formId);
         if (!other) return;                                  // no column of that name over there
+        var v = mine.value.trim();
+        // cleared: take the copy away too, but only if it is the same filter
+        if (v === '' && other.defaultValue.trim() !== mine.defaultValue.trim()) return;
         // the other side's filters travel in this form as hidden fields
         var carried = form.querySelector('input[type=hidden][name="' + other.name + '"]');
         if (!carried) {
@@ -1009,8 +1011,31 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
           carried.name = other.name;
           form.appendChild(carried);
         }
-        carried.value = mine.value;
+        carried.value = v;
       });
+    });
+  });
+
+  // The same column on the other side, if it has one.
+  function twinOf(mine, formId) {
+    return document.querySelector('input.colf[data-twin="' + CSS.escape(mine.dataset.twin)
+                                  + '"]:not([form="' + formId + '"])');
+  }
+
+  // A side's Clear button: with copying on, the copies on the other side go too.
+  document.querySelectorAll('a.clearside').forEach(function (link) {
+    link.addEventListener('click', function (e) {
+      if (!box.checked) return;
+      var formId = link.dataset.form;
+      var url = new URL(link.href, location.href);
+      var dropped = 0;
+      document.querySelectorAll('input.colf[form="' + formId + '"]').forEach(function (mine) {
+        var was = mine.defaultValue.trim();
+        if (was === '') return;
+        var other = twinOf(mine, formId);
+        if (other && other.defaultValue.trim() === was) { url.searchParams.delete(other.name); dropped++; }
+      });
+      if (dropped) { e.preventDefault(); location.href = url.toString(); }
     });
   });
 })();
