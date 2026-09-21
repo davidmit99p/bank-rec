@@ -195,6 +195,7 @@ function read_column_filters($side, $prefix, array $src)
 //   =text       is exactly it
 //   !text       does not contain it
 //   (blank)     has nothing in it
+//   !(blank)    has something in it
 //   100         the amount, either sign         (value column)
 //   =-100       exactly that, sign and all
 //   >100  <100  >=100  <=100
@@ -223,7 +224,8 @@ function column_filter_sql($col, $v)
         }
     }
 
-    if (strcasecmp($v, '(blank)') === 0) return ["({$c} IS NULL OR {$c} = '')", []];
+    if (strcasecmp($v, '(blank)') === 0)  return ["({$c} IS NULL OR {$c} = '')", []];
+    if (strcasecmp($v, '!(blank)') === 0) return ["({$c} IS NOT NULL AND {$c} <> '')", []];
     if ($v[0] === '=' && strlen($v) > 1)  return ["{$c} = ?", [substr($v, 1)]];
     if ($v[0] === '!' && strlen($v) > 1)  return ["({$c} IS NULL OR {$c} NOT LIKE ?)", ['%' . substr($v, 1) . '%']];
     return ["{$c} LIKE ?", ['%' . $v . '%']];
@@ -243,6 +245,7 @@ function describe_side_filters($side, array $p)
     foreach (read_column_filters($side, $pfx . 'f_', $p) as $col => $v) {
         $name = $labels[$col] ?? $col;
         if (strcasecmp($v, '(blank)') === 0)           $out[] = "{$name} is blank";
+        elseif (strcasecmp($v, '!(blank)') === 0)      $out[] = "{$name} is not blank";
         elseif ($v[0] === '=' && strlen($v) > 1)       $out[] = "{$name} is " . substr($v, 1);
         elseif ($v[0] === '!' && strlen($v) > 1)       $out[] = "{$name} does not contain " . substr($v, 1);
         elseif ($v[0] === '>' || $v[0] === '<')         $out[] = "{$name} {$v}";

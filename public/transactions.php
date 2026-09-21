@@ -703,7 +703,7 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
                        . ' class="colf' . (isset($colf[$col]) ? ' on' : '') . '" data-side="' . $tag . '"'
                        . ' data-twin="' . h(mb_strtolower(trim($twin))) . '"'
                        . ' value="' . h($colf[$col] ?? '') . '" placeholder="' . h($ph) . '"'
-                       . ' title="Type and press Enter. =exact  !not  (blank)'
+                       . ' title="Type and press Enter. =exact  !not  (blank)  !(blank) for not blank'
                        . ($col === 'value' ? '  100 either sign  =-100  >100  <100' : '') . '"'
                        . '></th>';
               };
