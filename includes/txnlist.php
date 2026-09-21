@@ -23,7 +23,40 @@ function sort_columns()
     return $out;
 }
 
-// The ORDER BY for a sort choice.
+// --- sorting by more than one column ------------------------------------------
+//
+// A sort is a list of columns, each ascending or descending: by period, then
+// within that by reference, then by value. It travels as two comma-separated
+// settings - "date,description" and "asc,desc" - so a single column still
+// reads exactly as it always did.
+const SORT_LEVELS = 3;
+
+// [[column, 'asc'|'desc'], ...] from the two settings. Anything not a real
+// column is dropped, so nothing from the address bar reaches the query, and a
+// column named twice keeps its first place.
+function read_sort($keys, $dirs)
+{
+    $keys = array_map('trim', explode(',', (string)$keys));
+    $dirs = array_map('trim', explode(',', (string)$dirs));
+    $ok   = sort_columns();
+    $out  = [];
+    $seen = [];
+    foreach ($keys as $i => $k) {
+        if ($k === '' || !isset($ok[$k]) || isset($seen[$k])) continue;
+        $seen[$k] = true;
+        $out[] = [$k, ($dirs[$i] ?? 'asc') === 'desc' ? 'desc' : 'asc'];
+        if (count($out) >= SORT_LEVELS) break;
+    }
+    return $out ?: [['date', 'asc']];
+}
+
+// The same list back as the two settings.
+function sort_settings(array $levels)
+{
+    return [implode(',', array_column($levels, 0)), implode(',', array_column($levels, 1))];
+}
+
+// The ORDER BY for a sort, one column or several.
 //
 // 'abs' sorts by size and ignores the sign, so 100.00 and -100.00 sit next to
 // each other - which is how you spot a pair that cancels out. Within the same
@@ -31,10 +64,14 @@ function sort_columns()
 // arriving in whatever order the database felt like.
 function order_expression($sortKey, $dir)
 {
-    $d = $dir === 'desc' ? 'DESC' : 'ASC';
-    if ($sortKey === 'abs') return "ABS(t.value) {$d}, t.value ASC, t.id";
-    $col = sort_columns()[$sortKey] ?? 'txn_date';
-    return "t.{$col} {$d}, t.id";
+    $parts = [];
+    foreach (read_sort($sortKey, $dir) as [$k, $d]) {
+        $d = $d === 'desc' ? 'DESC' : 'ASC';
+        if ($k === 'abs') { $parts[] = "ABS(t.value) {$d}"; $parts[] = "t.value ASC"; continue; }
+        $parts[] = 't.' . (sort_columns()[$k] ?? 'txn_date') . ' ' . $d;
+    }
+    $parts[] = 't.id';                         // a steady order for anything left level
+    return implode(', ', $parts);
 }
 
 // --- months ------------------------------------------------------------------

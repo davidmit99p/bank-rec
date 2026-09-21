@@ -294,17 +294,46 @@ $sign = $wantIn && $wantOut ? 'both' : ($wantIn ? 'in' : 'out');
 
 // One clickable sort link. $side is 'l' for ledger or 'b' for bank, so the two
 // lists sort independently.
+//
+// A click sorts by this column alone, and a second click turns it round. A
+// Shift- or Ctrl-click adds it as the next level - sort within the sort - or,
+// if it is already one of the levels, turns that level round. The page's script
+// sends the click to data-multi when either key is held.
 function sort_link($label, $side, $key, $curKey, $curDir, $title = '')
 {
-    $params = $_GET;
-    $params[$side . 's'] = $key;
-    $params[$side . 'd'] = ($curKey === $key && $curDir === 'asc') ? 'desc' : 'asc';
-    $params[$side . 'p'] = 1;                 // a new order means starting again
-    $arrow = $curKey === $key ? ($curDir === 'asc' ? ' &uarr;' : ' &darr;')
-                              : ' <span class="sorthint">&#8597;</span>';     // "click to sort"
-    $style = $curKey === $key ? 'color:var(--accent);font-weight:700' : 'color:inherit';
-    return '<a href="?' . h(http_build_query($params)) . '"'
-         . ($title ? ' title="' . h($title) . '"' : '')
+    $levels = read_sort($curKey, $curDir);
+    $at = null;
+    foreach ($levels as $i => [$k, $d]) if ($k === $key) $at = $i;
+
+    // an ordinary click: this column alone
+    $alone = [[$key, ($levels === [[$key, 'asc']]) ? 'desc' : 'asc']];
+    // a Shift-click: turn this level round, or add it at the end
+    $more = $levels;
+    if ($at !== null) {
+        $more[$at][1] = $more[$at][1] === 'asc' ? 'desc' : 'asc';
+    } elseif (count($more) < SORT_LEVELS) {
+        $more[] = [$key, 'asc'];
+    }
+
+    $href = function (array $lv) use ($side) {
+        $params = $_GET;
+        [$params[$side . 's'], $params[$side . 'd']] = sort_settings($lv);
+        $params[$side . 'p'] = 1;             // a new order means starting again
+        return '?' . http_build_query($params);
+    };
+
+    if ($at !== null) {
+        $arrow = $levels[$at][1] === 'asc' ? ' &uarr;' : ' &darr;';
+        if (count($levels) > 1) $arrow .= '<sup class="sortlevel">' . ($at + 1) . '</sup>';
+    } else {
+        $arrow = ' <span class="sorthint">&#8597;</span>';                  // "click to sort"
+    }
+    $style = $at !== null ? 'color:var(--accent);font-weight:700' : 'color:inherit';
+    $tip   = ($title ? $title . '. ' : '') . 'Click to sort by this. Shift-click to sort within the '
+           . (count($levels) === 1 && $at === null ? 'current sort' : 'sorts already chosen')
+           . ' (up to ' . SORT_LEVELS . ').';
+    return '<a href="' . h($href($alone)) . '" data-multi="' . h($href($more)) . '"'
+         . ' title="' . h($tip) . '"'
          . ' style="text-decoration:none;' . $style . '">' . h($label) . $arrow . '</a>';
 }
 
@@ -333,10 +362,10 @@ function value_head($side, $curKey, $curDir)
 // from here without going anywhere else.
 $draft = current_draft();
 
-$lsort = isset(sort_columns()[$_GET['ls'] ?? '']) ? $_GET['ls'] : 'date';
-$ldir  = ($_GET['ld'] ?? 'asc') === 'desc' ? 'desc' : 'asc';
-$bsort = isset(sort_columns()[$_GET['bs'] ?? '']) ? $_GET['bs'] : 'date';
-$bdir  = ($_GET['bd'] ?? 'asc') === 'desc' ? 'desc' : 'asc';
+// Each side's sort, one column or several - see read_sort(). Kept as the two
+// comma-separated settings so they travel through links and forms unchanged.
+[$lsort, $ldir] = sort_settings(read_sort($_GET['ls'] ?? '', $_GET['ld'] ?? ''));
+[$bsort, $bdir] = sort_settings(read_sort($_GET['bs'] ?? '', $_GET['bd'] ?? ''));
 
 // How many rows to draw. Twelve thousand in one page is slow in the browser
 // however quick the database is.
@@ -975,6 +1004,16 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
   update();
   refreshHeadings();
 })();
+</script>
+<script>
+// Shift- or Ctrl-click on a heading adds it as a further sort rather than
+// replacing the one there is. The link carries both destinations.
+document.addEventListener('click', function (e) {
+  var a = e.target.closest && e.target.closest('a[data-multi]');
+  if (!a || !(e.shiftKey || e.ctrlKey || e.metaKey)) return;
+  e.preventDefault();
+  location.href = a.dataset.multi;
+});
 </script>
 <script src="assets/balance.js?v=<?= (int)@filemtime(__DIR__ . '/assets/balance.js') ?>"></script>
 <script>

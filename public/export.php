@@ -16,8 +16,8 @@ $q    = trim($_GET['q'] ?? '');
 $from = trim($_GET['from'] ?? '');
 $to   = trim($_GET['to'] ?? '');
 $show = in_array($_GET['show'] ?? '', ['open', 'matched', 'both'], true) ? $_GET['show'] : 'open';
-$sort = isset(sort_columns()[$_GET['sort'] ?? '']) ? $_GET['sort'] : 'date';
-$dir  = ($_GET['dir'] ?? 'asc') === 'desc' ? 'desc' : 'asc';
+// one column or several, exactly as the screen was sorted
+[$sort, $dir] = sort_settings(read_sort($_GET['sort'] ?? '', $_GET['dir'] ?? ''));
 
 $virgin  = !isset($_GET['in']) && !isset($_GET['out']);
 $wantIn  = $virgin ? true : isset($_GET['in']);

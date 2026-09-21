@@ -195,3 +195,6 @@ thead:has(.colfilters) th{position:static}
 .bal-option:first-of-type{border-top:0}
 .bal-rows{flex:1;min-width:16rem;font-size:.85rem}
 .bal-row{white-space:nowrap}
+
+/* the position of a column in a sort of several: Date ↑1, Reference ↓2 */
+.sortlevel{font-size:.65em;margin-left:.1em;font-weight:700}
