@@ -1197,6 +1197,15 @@ document.addEventListener('click', function (e) {
   });
   document.getElementById('grpCancel').addEventListener('click', function () { dlg.close(); });
 
+  // One press, one group. A second press while the first is on its way would
+  // otherwise make a second group saying the same thing.
+  document.getElementById('groupForm').addEventListener('submit', function (e) {
+    var save = e.target.querySelector('button[type=submit]');
+    if (save.disabled) { e.preventDefault(); return; }
+    save.disabled = true;
+    save.textContent = 'Saving...';
+  });
+
   // adding to a group that already exists: the note is optional, and replaces
   // what is there only if something is typed
   var to = document.getElementById('grpTo');
