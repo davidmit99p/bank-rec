@@ -48,3 +48,14 @@ function trim_broken_utf8($s)
     }
     return $s;
 }
+
+// Shortening a note for a drop-down. The real one measures display width; this
+// counts bytes, which is the same thing for the text we deal with.
+if (!function_exists('mb_strimwidth')) {
+    function mb_strimwidth($s, $start, $width, $trim = '', $enc = null) {
+        $s = (string)$s;
+        $s = $start ? substr($s, $start) : $s;
+        if (strlen($s) <= $width) return $s;
+        return rtrim(substr($s, 0, max(0, $width - strlen((string)$trim)))) . $trim;
+    }
+}
