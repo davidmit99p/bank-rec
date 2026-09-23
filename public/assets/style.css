@@ -198,3 +198,7 @@ thead:has(.colfilters) th{position:static}
 
 /* the position of a column in a sort of several: Date ↑1, Reference ↓2 */
 .sortlevel{font-size:.65em;margin-left:.1em;font-weight:700}
+
+/* a group note's reference on a transaction row */
+.tag.grouptag{background:#e8eef7;color:#33507a;text-decoration:none;font-weight:600}
+.tag.grouptag:hover{background:#d9e2ef}

@@ -33,6 +33,7 @@ function render_header($title = '')
         'summary.php'      => 'Summary',
         'pivot.php'        => 'Pivot',
         'matches.php'      => 'Matches',
+        'groups.php'       => 'Group notes',
         'trace.php'        => 'Trace',
         'runs.php'         => 'Runs',
         'recs.php'         => 'Reconciliations',

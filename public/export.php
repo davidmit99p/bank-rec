@@ -10,6 +10,7 @@ require_once __DIR__ . '/../includes/splits.php';
 require_once __DIR__ . '/../includes/txnlist.php';
 require_once __DIR__ . '/../includes/matcher.php';
 require_once __DIR__ . '/../includes/extras.php';
+require_once __DIR__ . '/../includes/issues.php';
 
 $side = ($_GET['side'] ?? '') === 'bank' ? 'bank' : 'ledger';
 $q    = trim($_GET['q'] ?? '');
@@ -29,7 +30,8 @@ $sign = $wantIn && $wantOut ? 'both' : ($wantIn ? 'in' : 'out');
 // to be on screen. Items sitting in an unfinalised run are hidden here just as
 // they are on the screen - that is handled inside item_filters().
 $colf = read_column_filters($side, 'f_', $_GET);
-$rows = list_items($side, $q, $from, $to, $show, $sort, $dir, $sign, null, 0, $colf, read_side_period($side, $_GET));
+$rows = list_items($side, $q, $from, $to, $show, $sort, $dir, $sign, null, 0, $colf,
+                   read_side_period($side, $_GET), (int)($_GET['grp'] ?? 0));
 
 // a filename that says what it is, without spaces or punctuation to trip Excel
 $rec  = current_rec();
@@ -49,7 +51,8 @@ $out = fopen('php://output', 'w');
 echo "\xEF\xBB\xBF";   // so Excel opens it as UTF-8 rather than guessing
 
 $head = ['Date', 'Description', 'Value', 'Status', 'Rule', 'Run',
-         'Split from', 'Source file', 'Line no.'];   // the system's own number for the line
+         'Split from', 'Source file', 'Line no.'];
+if (issues_ready()) $head[] = 'Group';   // the system's own number for the line
 foreach (extra_labels($side) as $label) $head[] = $label;
 if (extras_ready()) $head[] = 'Notes';
 fputcsv($out, $head);
@@ -68,6 +71,10 @@ foreach ($rows as $r) {
         $r['source_file'] ?? '',
         $r['id'],
     ];
+    if (issues_ready()) {
+        $g = issues_by_id()[(int)($r['issue_id'] ?? 0)] ?? null;
+        $line[] = $g ? $g['ref'] : '';
+    }
     foreach (array_keys(extra_labels($side)) as $key) $line[] = $r[$key] ?? '';
     if (extras_ready()) $line[] = $r['notes'] ?? '';
     fputcsv($out, $line);

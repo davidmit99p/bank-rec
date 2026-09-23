@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../includes/layout.php';
 require_once __DIR__ . '/../includes/matcher.php';
 require_once __DIR__ . '/../includes/txnlist.php';
+require_once __DIR__ . '/../includes/issues.php';
 
 $pdo = db();
 
@@ -69,8 +70,9 @@ function filtered_ids($side)
     $sign   = ($in === $out) ? 'both' : ($in ? 'in' : 'out');
     $colf   = read_column_filters($side, $pfx . 'f_', $p);
     $months = read_side_period($side, $p);
+    $grp    = (int)($p['grp'] ?? 0);
 
-    $rows  = list_items($side, $q, $from, $to, $show, 'date', 'asc', $sign, null, 0, $colf, $months);
+    $rows  = list_items($side, $q, $from, $to, $show, 'date', 'asc', $sign, null, 0, $colf, $months, $grp);
     $total = array_sum(array_map(fn($r) => (float)$r['value'], $rows));
 
     $wantN     = (int)($_POST['all_' . $side . '_n'] ?? -1);
@@ -207,6 +209,38 @@ if (($_POST['action'] ?? '') === 'manual') {
     }
 }
 
+// --- a note against several items at once -------------------------------------
+//
+// The ticked items are all part of the same issue. One note covers them, and
+// each of them carries its reference from then on.
+if (($_POST['action'] ?? '') === 'group_note') {
+    $ids = array_merge(posted_ids('ledger'), posted_ids('bank'));
+    $to  = (string)($_POST['group_to'] ?? 'new');
+    try {
+        if ($to === 'none') {
+            $n = set_issue_on(null, $ids);
+            log_event('ungrouped items', $n . ' items');
+            flash($n . ' item' . ($n === 1 ? ' is' : 's are') . ' no longer in a group.');
+        } elseif ($to === 'new') {
+            [$ok, $msg] = create_issue($_POST['group_note'] ?? '', $ids);
+            if (!$ok) throw new RuntimeException($msg);
+            log_event('made a group note', $msg);
+            flash($msg);
+        } else {
+            $g = get_issue((int)$to);
+            if (!$g) throw new RuntimeException('That group no longer exists.');
+            $n = set_issue_on($g['id'], $ids);
+            if (trim((string)($_POST['group_note'] ?? '')) !== '') update_issue_note($g['id'], $_POST['group_note']);
+            log_event('added to a group note', $g['ref'] . ': ' . $n . ' items');
+            flash($n . ' item' . ($n === 1 ? '' : 's') . ' added to ' . $g['ref'] . '.');
+        }
+        header('Location: transactions.php?' . http_build_query($_POST['back'] ?? []));
+        exit;
+    } catch (Throwable $e) {
+        $error = $e->getMessage();
+    }
+}
+
 // --- a note against one transaction ------------------------------------------
 if (($_POST['action'] ?? '') === 'note') {
     $side = ($_POST['side'] ?? '') === 'bank' ? 'bank' : 'ledger';
@@ -275,6 +309,9 @@ $bfFlat = []; foreach ($bf as $k => $v) $bfFlat['bf_' . $k] = $v;
 $from = trim($_GET['from'] ?? '');
 $to   = trim($_GET['to'] ?? '');
 $show = in_array($_GET['show'] ?? '', ['open', 'matched', 'both'], true) ? $_GET['show'] : 'open';
+// one group note's items, both sides
+$grp  = (int)($_GET['grp'] ?? 0);
+if ($grp && !get_issue($grp)) $grp = 0;
 
 // Months: any number of them, picked from the ones there are transactions in.
 // They narrow the list alongside the date boxes rather than filling them in.
@@ -373,8 +410,8 @@ $sizes   = [100, 250, 500, 1000];
 $perPage = in_array((int)($_GET['per'] ?? 0), $sizes, true) ? (int)$_GET['per'] : 250;
 
 // The counts and totals cover EVERYTHING matching the filters, not the page.
-$lCount = count_items('ledger', $lq, $from, $to, $show, $sign, $lf, $lPer);
-$bCount = count_items('bank',   $bq, $from, $to, $show, $sign, $bf, $bPer);
+$lCount = count_items('ledger', $lq, $from, $to, $show, $sign, $lf, $lPer, $grp);
+$bCount = count_items('bank',   $bq, $from, $to, $show, $sign, $bf, $bPer, $grp);
 $lTot   = (float)$lCount['total'];  $bTot = (float)$bCount['total'];
 $lOpen  = (int)$lCount['open_n'];   $bOpen = (int)$bCount['open_n'];
 
@@ -384,11 +421,11 @@ $lPage  = min(max(1, (int)($_GET['lp'] ?? 1)), $lPages);
 $bPage  = min(max(1, (int)($_GET['bp'] ?? 1)), $bPages);
 
 $ledger = list_items('ledger', $lq, $from, $to, $show, $lsort, $ldir, $sign,
-                     $perPage, ($lPage - 1) * $perPage, $lf, $lPer);
+                     $perPage, ($lPage - 1) * $perPage, $lf, $lPer, $grp);
 $bank   = list_items('bank',   $bq, $from, $to, $show, $bsort, $bdir, $sign,
-                     $perPage, ($bPage - 1) * $perPage, $bf, $bPer);
+                     $perPage, ($bPage - 1) * $perPage, $bf, $bPer, $grp);
 
-$back   = array_filter(['lq' => $lq, 'bq' => $bq,
+$back   = array_filter(['lq' => $lq, 'bq' => $bq, 'grp' => $grp ?: '',
                         'from' => $from, 'to' => $to, 'show' => $show,
                         'per' => $perPage, 'lp' => $lPage, 'bp' => $bPage,
                         'in' => $wantIn ? '1' : '', 'out' => $wantOut ? '1' : '',
@@ -460,7 +497,7 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
          as [$id, $others]): ?>
   <form method="get" id="<?= $id ?>" style="display:none">
     <?php foreach ($others + $perParams + ['from' => $from, 'to' => $to, 'show' => $show,
-                              'per' => $perPage] as $k => $v): ?>
+                              'grp' => $grp ?: '', 'per' => $perPage] as $k => $v): ?>
       <input type="hidden" name="<?= h($k) ?>" value="<?= h($v) ?>">
     <?php endforeach; ?>
     <?php if ($wantIn): ?><input type="hidden" name="in" value="1"><?php endif; ?>
@@ -583,6 +620,16 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
         <input type="checkbox" name="out" value="1" style="width:auto"
           <?= $wantOut ? 'checked' : '' ?> onchange="this.form.submit()"> Money out</label>
     </span></div>
+  <?php if (issues_ready() && ($allIssues = list_issues())): ?>
+    <div><label>Group note</label>
+      <select name="grp" onchange="this.form.submit()">
+        <option value="">Any</option>
+        <?php foreach ($allIssues as $g): ?>
+          <option value="<?= (int)$g['id'] ?>"<?= $grp === (int)$g['id'] ? ' selected' : '' ?>>
+            <?= h($g['ref']) ?> &mdash; <?= h(mb_strimwidth((string)$g['note'], 0, 40, '...')) ?></option>
+        <?php endforeach; ?>
+      </select></div>
+  <?php endif; ?>
   <div><label>Rows per page</label>
     <select name="per" onchange="this.form.submit()">
       <?php foreach ($sizes as $sz): ?>
@@ -623,6 +670,11 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
         Match ticked items</button>
       <button class="btn" type="submit" name="action" value="unmatch" id="unmatchBtn" disabled
         style="display:none">Unmatch ticked lines</button>
+      <?php if (issues_ready()): ?>
+        <button class="btn ghost" type="button" id="groupBtn" disabled
+          title="Write one note against everything ticked, on either side, and tie them together">
+          Group note</button>
+      <?php endif; ?>
       <button class="btn ghost" type="button" id="balanceBtn"
         data-left="<?= h(side_label('ledger')) ?>" data-right="<?= h(side_label('bank')) ?>"
         title="Look through the items on this page for a set that closes the difference">
@@ -684,7 +736,7 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
           // the download takes the same filters as the screen, so what comes out
           // is what you are looking at
           $dl = ['side' => $side, 'q' => $val, 'from' => $from, 'to' => $to,
-                 'show' => $show, 'sort' => $sortKey, 'dir' => $dir]
+                 'show' => $show, 'sort' => $sortKey, 'dir' => $dir, 'grp' => $grp ?: '']
                + side_period_params($side, $side === 'ledger' ? $lPer : $bPer);
           foreach ($colf as $k => $v) $dl['f_' . $k] = $v;
           if ($wantIn)  $dl['in']  = 1;
@@ -781,6 +833,10 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
               <td class="desc" title="<?= h($t['description']) ?>"><?= h($t['description']) ?>
                 <?php if (!empty($t['parent_id'])): ?>
                   <span class="tag" title="split out of <?= h(money($t['parent_value'] ?? 0)) ?> on <?= h($t['txn_date']) ?>">split</span>
+                <?php endif; ?>
+                <?php if (!empty($t['issue_id']) && ($g = issues_by_id()[(int)$t['issue_id']] ?? null)): ?>
+                  <a class="tag grouptag" href="?<?= h(http_build_query(['grp' => (int)$g['id'], 'show' => $show])) ?>"
+                     title="<?= h($g['note']) ?>"><?= h($g['ref']) ?></a>
                 <?php endif; ?>
                 <?php if ($isMatched): ?>
                   <span class="tag <?= is_numeric($t['matched_rule']) ? '' : 'manual' ?>"><?php
@@ -1080,6 +1136,81 @@ document.addEventListener('click', function (e) {
 })();
 </script>
 <?php if (extras_ready()): ?>
+<?php if (issues_ready()): ?>
+<dialog id="groupDlg" class="split-dlg">
+  <form method="post" id="groupForm">
+    <input type="hidden" name="action" value="group_note">
+    <input type="hidden" name="ledger_ids" id="grpLedgerIds">
+    <input type="hidden" name="bank_ids"   id="grpBankIds">
+    <?php foreach ($back as $k => $v): ?>
+      <input type="hidden" name="back[<?= h($k) ?>]" value="<?= h($v) ?>">
+    <?php endforeach; ?>
+    <h2 style="margin-top:0">Group note</h2>
+    <p class="muted small" id="grpSummary"></p>
+    <label>These items are</label>
+    <select name="group_to" id="grpTo">
+      <option value="new">a new group</option>
+      <?php foreach (list_issues() as $g): ?>
+        <option value="<?= (int)$g['id'] ?>">part of <?= h($g['ref']) ?> &mdash;
+          <?= h(mb_strimwidth((string)$g['note'], 0, 50, '...')) ?></option>
+      <?php endforeach; ?>
+      <option value="none">not grouped &mdash; take them out</option>
+    </select>
+    <label id="grpNoteLabel">The note</label>
+    <textarea name="group_note" id="grpNote" style="min-height:8rem"
+      placeholder="What the issue is: a payment the bank split, a posting in the wrong period, whatever it is"></textarea>
+    <div class="actions">
+      <button class="btn" type="submit">Save</button>
+      <button class="btn ghost" type="button" id="grpCancel">Cancel</button>
+      <span class="muted small" style="margin-left:auto">This groups the items. It does not match them.</span>
+    </div>
+  </form>
+</dialog>
+<script>
+(function () {
+  var dlg = document.getElementById('groupDlg');
+  var btn = document.getElementById('groupBtn');
+  var form = document.getElementById('txnForm');
+  if (!dlg || !btn || !dlg.showModal) return;
+
+  // the button wakes up as soon as anything is ticked, matched or not
+  function ticked() {
+    var out = { L: [], B: [] };
+    form.querySelectorAll('.tick').forEach(function (c) { if (c.checked) out[c.dataset.side].push(c.value); });
+    return out;
+  }
+  function refresh() {
+    var t = ticked();
+    btn.disabled = (t.L.length + t.B.length) === 0;
+  }
+  form.addEventListener('change', refresh);
+  form.addEventListener('click', function () { setTimeout(refresh, 0); });
+  refresh();
+
+  btn.addEventListener('click', function () {
+    var t = ticked();
+    document.getElementById('grpLedgerIds').value = t.L.join(',');
+    document.getElementById('grpBankIds').value   = t.B.join(',');
+    document.getElementById('grpSummary').textContent =
+      t.L.length + ' on the left, ' + t.B.length + ' on the right.';
+    dlg.showModal();
+  });
+  document.getElementById('grpCancel').addEventListener('click', function () { dlg.close(); });
+
+  // adding to a group that already exists: the note is optional, and replaces
+  // what is there only if something is typed
+  var to = document.getElementById('grpTo');
+  to.addEventListener('change', function () {
+    var note = document.getElementById('grpNote');
+    var lab  = document.getElementById('grpNoteLabel');
+    note.hidden = to.value === 'none';
+    lab.hidden  = to.value === 'none';
+    lab.textContent = to.value === 'new' ? 'The note' : 'The note (leave empty to keep what it says)';
+  });
+})();
+</script>
+<?php endif; ?>
+
 <dialog id="noteDlg" class="split-dlg">
   <form method="post">
     <input type="hidden" name="action" value="note">

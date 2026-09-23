@@ -319,6 +319,9 @@ function describe_shared_filters(array $p)
     elseif ($to !== '')             $out[] = "dated up to {$to}";
     $in  = !empty($p['in']);
     $outF = !empty($p['out']);
+    if (!empty($p['grp']) && function_exists('get_issue') && ($g = get_issue((int)$p['grp']))) {
+        $out[] = 'group note ' . $g['ref'];
+    }
     if ($in && !$outF) $out[] = 'money in only';
     if ($outF && !$in) $out[] = 'money out only';
     return $out;
@@ -327,11 +330,18 @@ function describe_shared_filters(array $p)
 // Everything the screen filters on, built once and used by both the count and
 // the listing, so the figures at the top of a panel always describe the list
 // underneath it.
-function item_filters($side, $q, $from, $to, $show, $sign, array $colf = [], array $months = [])
+function item_filters($side, $q, $from, $to, $show, $sign, array $colf = [], array $months = [],
+                      $issue = null)
 {
     $table = 'rec_txns';
     $where = [file_where($side, 't')];
     $args  = [];
+
+    // one group note's items, both sides - see includes/issues.php
+    if ($issue && function_exists('issues_ready') && issues_ready()) {
+        $where[] = 't.issue_id = ?';
+        $args[]  = (int)$issue;
+    }
 
     // matched IN THIS RECONCILIATION - the same line can be settled against one
     // file and still outstanding against another
@@ -403,9 +413,9 @@ function item_filters($side, $q, $from, $to, $show, $sign, array $colf = [], arr
 // page on screen. The totals are what a reconciliation turns on, so they must
 // never describe only part of the list.
 function count_items($side, $q, $from, $to, $show = 'open', $sign = 'both', array $colf = [],
-                     array $months = [])
+                     array $months = [], $issue = null)
 {
-    [$table, $where, $args] = item_filters($side, $q, $from, $to, $show, $sign, $colf, $months);
+    [$table, $where, $args] = item_filters($side, $q, $from, $to, $show, $sign, $colf, $months, $issue);
     $st = db()->prepare("SELECT COUNT(*) n,
                                 COALESCE(SUM(t.value), 0) total,
                                 COALESCE(SUM(CASE WHEN " . open_where('t') . " THEN 1 ELSE 0 END), 0) open_n
@@ -416,9 +426,10 @@ function count_items($side, $q, $from, $to, $show = 'open', $sign = 'both', arra
 
 // $limit of null means every row - which is what the download wants.
 function list_items($side, $q, $from, $to, $show = 'open', $sortKey = 'date', $dir = 'asc',
-                    $sign = 'both', $limit = null, $offset = 0, array $colf = [], array $months = [])
+                    $sign = 'both', $limit = null, $offset = 0, array $colf = [], array $months = [],
+                    $issue = null)
 {
-    [$table, $where, $args] = item_filters($side, $q, $from, $to, $show, $sign, $colf, $months);
+    [$table, $where, $args] = item_filters($side, $q, $from, $to, $show, $sign, $colf, $months, $issue);
 
     // matched_here, matched_rule and run_ref all describe this reconciliation
     // only, which is why they come from the join rather than from the row
