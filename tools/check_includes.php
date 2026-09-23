@@ -71,7 +71,32 @@ foreach ($pages as $page) {
     }
 }
 
+// --- and the other way a live page breaks ------------------------------------
+//
+// The live server has no mbstring, so every mb_ function this app uses must
+// have a stand-in in includes/compat.php. A missing one works perfectly here
+// and dies there - which is how a broken Transactions screen reached David
+// rather than me.
+$compat = (string)@file_get_contents("$root/includes/compat.php");
+$used   = [];
+foreach (array_merge(glob("$root/public/*.php"), glob("$root/includes/*.php")) as $f) {
+    if (realpath($f) === realpath("$root/includes/compat.php")) continue;
+    preg_match_all('/\b(mb_[a-z0-9_]+)\s*\(/i', (string)@file_get_contents($f), $mm);
+    foreach ($mm[1] as $fn) $used[strtolower($fn)][basename($f)] = true;
+}
+$noStandIn = [];
+foreach ($used as $fn => $where) {
+    if (stripos($compat, "function {$fn}(") === false) $noStandIn[$fn] = array_keys($where);
+}
+if ($noStandIn) {
+    $problems++;
+    foreach ($noStandIn as $fn => $where) {
+        printf("  %-22s no stand-in in compat.php - used in %s\n", $fn . '()', implode(', ', $where));
+    }
+    echo "  The live server has no mbstring: add a stand-in, or use a plain string function.\n";
+}
+
 echo $problems
-    ? "\n{$problems} page(s) call something they cannot reach.\n"
-    : "Every page can reach everything it calls.\n";
+    ? "\n{$problems} problem(s) found.\n"
+    : "Every page can reach everything it calls, and every mb_ function has a stand-in.\n";
 exit($problems ? 1 : 0);
