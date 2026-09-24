@@ -157,7 +157,8 @@ render_header('Summary');
   </table>
   <p class="small muted" style="margin:.5rem 0 0">Matched here means matched in this reconciliation; the
     same item can be open in another. The difference on the second line is what the
-    <a href="pivot.php">Pivot</a> breaks down.</p>
+    <a href="pivot.php">Pivot</a> breaks down, and the
+    <a href="statement.php">Statement</a> sets against the balances themselves.</p>
 </div>
 
 <h2>Month by month</h2>

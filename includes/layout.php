@@ -31,6 +31,7 @@ function render_header($title = '')
         'rules.php'        => '2. Rules',
         'transactions.php' => '3. Transactions',
         'summary.php'      => 'Summary',
+        'statement.php'    => 'Statement',
         'pivot.php'        => 'Pivot',
         'matches.php'      => 'Matches',
         'groups.php'       => 'Group notes',
