@@ -224,3 +224,8 @@ thead:has(.colfilters) th{position:static}
 .statement tr.bal td{font-weight:600}
 .statement tr.total td{border-top:2px solid var(--accent);border-bottom:3px double var(--accent)}
 .panel.warn{background:#fdf6e6;border-color:#e8d9a8}
+
+/* a category heading inside the reconciliations list */
+tr.grouphead td{background:#f2f4f7;font-weight:600;font-size:.85rem;
+  letter-spacing:.02em;padding-top:.6rem;padding-bottom:.35rem}
+tr.grouphead td .muted{font-weight:400;margin-left:.4rem}

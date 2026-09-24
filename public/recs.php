@@ -38,6 +38,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             // which two files this reconciliation pairs
             $ex = [];
+            if (categories_ready()) {
+                $ex['category_id'] = ((int)($_POST['category_id'] ?? 0)) ?: null;
+            }
             if (files_ready()) {
                 $ex['left_file_id']  = ((int)($_POST['left_file_id'] ?? 0))  ?: null;
                 $ex['right_file_id'] = ((int)($_POST['right_file_id'] ?? 0)) ?: null;
@@ -85,6 +88,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
 
+        // --- the categories themselves ---------------------------------------
+        if ($action === 'add_category') {
+            $name = trim($_POST['cat_name'] ?? '');
+            if ($name === '') throw new RuntimeException('Give the category a name.');
+            $pdo->prepare("INSERT INTO rec_categories (name, sort_order) VALUES (?,?)")
+                ->execute([$name, (int)($_POST['cat_order'] ?? 100)]);
+            flash('Added ' . $name . '.');
+            header('Location: recs.php');
+            exit;
+        }
+        if ($action === 'save_category') {
+            $name = trim($_POST['cat_name'] ?? '');
+            if ($name === '') throw new RuntimeException('A category needs a name.');
+            $pdo->prepare("UPDATE rec_categories SET name = ?, sort_order = ? WHERE id = ?")
+                ->execute([$name, (int)($_POST['cat_order'] ?? 100), (int)($_POST['id'] ?? 0)]);
+            flash('Saved.');
+            header('Location: recs.php');
+            exit;
+        }
+        // Removing a category never removes a reconciliation - they simply go
+        // back to being uncategorised, which is where they started.
+        if ($action === 'delete_category') {
+            $id = (int)($_POST['id'] ?? 0);
+            $pdo->prepare("UPDATE rec_recs SET category_id = NULL WHERE category_id = ?")->execute([$id]);
+            $pdo->prepare("DELETE FROM rec_categories WHERE id = ?")->execute([$id]);
+            flash('Category removed. Its reconciliations are uncategorised again.');
+            header('Location: recs.php');
+            exit;
+        }
+
         if ($action === 'delete') {
             $id = (int)$_POST['id'];
             // a reconciliation no longer owns transactions - it only pairs two
@@ -114,6 +147,7 @@ if ($editId) {
 }
 $blank = ['id' => 0, 'name' => '', 'left_label' => 'Ledger', 'right_label' => 'Bank',
           'sort_order' => 100, 'notes' => '', 'active' => 1];
+$blank['category_id'] = null;
 $blank['left_file_id'] = null;
 $blank['right_file_id'] = null;
 $f = $edit ?: $blank;
@@ -151,7 +185,14 @@ else on the site then shows only that one.</p>
     <th class="num">Open left</th><th class="num">Open right</th>
     <th class="num">Difference</th><th class="num">Runs</th><th></th></tr></thead>
   <tbody>
-  <?php foreach ($rows as $r): $diff = (float)$r['l_val'] - (float)$r['b_val']; ?>
+  <?php
+  $groups = recs_by_category($rows);
+  foreach ($groups as $g): ?>
+    <?php if (count($groups) > 1): ?>
+      <tr class="grouphead"><td colspan="8"><?= h($g['label']) ?>
+        <span class="muted small"><?= count($g['recs']) ?></span></td></tr>
+    <?php endif; ?>
+  <?php foreach ($g['recs'] as $r): $diff = (float)$r['l_val'] - (float)$r['b_val']; ?>
     <tr<?= $r['active'] ? '' : ' style="opacity:.5"' ?>>
       <td><?= $r['id'] == $here ? '<span class="tag manual">working on</span>' : '' ?></td>
       <td><b><?= h($r['name']) ?></b>
@@ -198,9 +239,62 @@ else on the site then shows only that one.</p>
       </td>
     </tr>
   <?php endforeach; ?>
+  <?php endforeach; ?>
   </tbody>
 </table>
 </div>
+
+<?php if (categories_ready()): ?>
+<h2>Categories</h2>
+<p class="muted">What kind of thing each reconciliation is &mdash; bank accounts, bookings, stock.
+  They group the list above and the &ldquo;Working on&rdquo; box at the top right, which is the
+  whole point of them. Nothing has to be in one.</p>
+<div class="panel">
+  <?php $cats = all_categories(); ?>
+  <?php if ($cats): ?>
+  <?php // The forms sit outside the table and the fields point at them by name:
+        // a <form> cannot be a child of <tr>, and one wrapped round a row gets
+        // hoisted out by the browser, taking the fields with it. ?>
+  <table>
+    <thead><tr><th>Category</th><th class="num">Order</th><th class="num">Reconciliations</th><th></th></tr></thead>
+    <tbody>
+    <?php foreach ($cats as $c): $cf = 'cat' . (int)$c['id']; ?>
+      <tr>
+        <td><input type="text" name="cat_name" form="<?= $cf ?>" value="<?= h($c['name']) ?>" style="margin:0"></td>
+        <td class="num"><input type="number" name="cat_order" form="<?= $cf ?>" value="<?= (int)$c['sort_order'] ?>"
+              style="margin:0;width:5rem;text-align:right"></td>
+        <td class="num muted"><?= (int)$c['n'] ?></td>
+        <td style="display:flex;gap:.4rem">
+          <button class="btn ghost small" type="submit" form="<?= $cf ?>">Save</button>
+          <button class="btn ghost small" type="submit" form="<?= $cf ?>del"
+            style="color:var(--bad);border-color:var(--bad)">Remove</button>
+        </td>
+      </tr>
+    <?php endforeach; ?>
+    </tbody>
+  </table>
+  <?php foreach ($cats as $c): $cf = 'cat' . (int)$c['id']; ?>
+    <form method="post" id="<?= $cf ?>">
+      <input type="hidden" name="action" value="save_category">
+      <input type="hidden" name="id" value="<?= (int)$c['id'] ?>"></form>
+    <form method="post" id="<?= $cf ?>del"
+          onsubmit="return confirm('Remove <?= h($c['name']) ?>? Its reconciliations stay, without a category.')">
+      <input type="hidden" name="action" value="delete_category">
+      <input type="hidden" name="id" value="<?= (int)$c['id'] ?>"></form>
+  <?php endforeach; ?>
+  <?php else: ?>
+    <p class="muted">None yet. Add the first one below.</p>
+  <?php endif; ?>
+  <form method="post" class="row" style="align-items:end;margin-top:.8rem">
+    <input type="hidden" name="action" value="add_category">
+    <div style="flex:3"><label>New category</label>
+      <input type="text" name="cat_name" placeholder="e.g. Bank accounts" required></div>
+    <div><label>Order</label>
+      <input type="number" name="cat_order" value="100"></div>
+    <div><label>&nbsp;</label><button class="btn" type="submit">Add</button></div>
+  </form>
+</div>
+<?php endif; ?>
 
 <h2><?= $edit ? 'Edit ' . h($edit['name']) : 'Add a reconciliation' ?></h2>
 <form method="post" class="panel">
@@ -210,6 +304,16 @@ else on the site then shows only that one.</p>
     <div style="flex:3"><label>Name</label>
       <input type="text" name="name" value="<?= h($f['name']) ?>"
              placeholder="e.g. NatWest account 1" required></div>
+    <?php if (categories_ready()): ?>
+      <div style="flex:2"><label>Category</label>
+        <select name="category_id">
+          <option value="">none</option>
+          <?php foreach (all_categories() as $c): ?>
+            <option value="<?= (int)$c['id'] ?>"<?= (int)($f['category_id'] ?? 0) === (int)$c['id'] ? ' selected' : '' ?>>
+              <?= h($c['name']) ?></option>
+          <?php endforeach; ?>
+        </select></div>
+    <?php endif; ?>
     <div><label>Order</label>
       <input type="number" name="sort_order" value="<?= (int)$f['sort_order'] ?>"></div>
     <div><label>&nbsp;</label>

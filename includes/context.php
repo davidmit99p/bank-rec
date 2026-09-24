@@ -123,3 +123,65 @@ function handle_rec_switch()
     header('Location: ' . $url);
     exit;
 }
+
+// --- categories ---------------------------------------------------------------
+//
+// What KIND of reconciliation this is: bank, booking, stock. A managed list,
+// so the grouping holds together; nothing is forced into one, and an
+// uncategorised reconciliation behaves exactly as it always did.
+
+function categories_ready()
+{
+    static $ok = null;
+    if ($ok === null) {
+        try {
+            db()->query("SELECT id FROM rec_categories LIMIT 1");
+            db()->query("SELECT category_id FROM rec_recs LIMIT 1");
+            $ok = true;
+        } catch (Throwable $e) {
+            $ok = false;
+        }
+    }
+    return $ok;
+}
+
+function all_categories()
+{
+    if (!categories_ready()) return [];
+    return db()->query("SELECT c.*, (SELECT COUNT(*) FROM rec_recs r WHERE r.category_id = c.id) n
+                        FROM rec_categories c ORDER BY c.sort_order, c.name")->fetchAll();
+}
+
+function category_name($id)
+{
+    if (!$id) return null;
+    foreach (all_categories() as $c) if ((int)$c['id'] === (int)$id) return $c['name'];
+    return null;
+}
+
+// Reconciliations gathered under a heading each, in the order they should be
+// shown: categories first, in their own order, then anything uncategorised,
+// then one-offs, which are working papers rather than things you keep.
+//
+// Returns [['label' => 'Bank accounts', 'recs' => [...]], ...]
+function recs_by_category(array $recs)
+{
+    $oneOff = [];
+    $none   = [];
+    $groups = [];
+    foreach (all_categories() as $c) $groups[(int)$c['id']] = ['label' => $c['name'], 'recs' => []];
+
+    foreach ($recs as $r) {
+        // A category always wins: put a one-off in one and that is where it
+        // goes, rather than the field quietly doing nothing.
+        $cid = categories_ready() ? (int)($r['category_id'] ?? 0) : 0;
+        if ($cid && isset($groups[$cid])) { $groups[$cid]['recs'][] = $r; continue; }
+        if (!empty($r['one_off']))        { $oneOff[] = $r; continue; }
+        $none[] = $r;
+    }
+
+    $out = array_values(array_filter($groups, fn($g) => $g['recs']));
+    if ($none)   $out[] = ['label' => $groups ? 'Uncategorised' : 'Reconciliations', 'recs' => $none];
+    if ($oneOff) $out[] = ['label' => 'One-offs', 'recs' => $oneOff];
+    return $out;
+}

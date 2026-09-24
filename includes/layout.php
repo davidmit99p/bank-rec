@@ -72,9 +72,21 @@ function render_header($title = '')
     <?php endforeach; ?>
     <label for="recSel">Working on</label>
     <select id="recSel" name="switch_rec" onchange="this.form.submit()">
-      <?php foreach ($recs as $r): ?>
-        <option value="<?= (int)$r['id'] ?>"<?= $rec && $rec['id'] == $r['id'] ? ' selected' : '' ?>>
-          <?= h($r['name']) ?><?= $r['active'] ? '' : ' (off)' ?><?= !empty($r['one_off']) ? ' (one-off)' : '' ?></option>
+      <?php
+      // Switched-off reconciliations are left out - retiring one is how the
+      // list stays short - except the one being worked on, which has to stay
+      // in the box it is showing in. Everything is still on the
+      // Reconciliations page, where it can be switched back on or picked up.
+      $pick = array_values(array_filter($recs,
+          fn($r) => $r['active'] || ($rec && $rec['id'] == $r['id'])));
+      $groups = recs_by_category($pick);
+      foreach ($groups as $g): ?>
+        <?php if (count($groups) > 1): ?><optgroup label="<?= h($g['label']) ?>"><?php endif; ?>
+        <?php foreach ($g['recs'] as $r): ?>
+          <option value="<?= (int)$r['id'] ?>"<?= $rec && $rec['id'] == $r['id'] ? ' selected' : '' ?>>
+            <?= h($r['name']) ?><?= $r['active'] ? '' : ' (off)' ?></option>
+        <?php endforeach; ?>
+        <?php if (count($groups) > 1): ?></optgroup><?php endif; ?>
       <?php endforeach; ?>
     </select>
   </form>

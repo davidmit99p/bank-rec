@@ -356,9 +356,13 @@ form to say which <b>bank</b> lines they should be paired with. Leave a box on &
       <label>Applies to</label>
       <select name="rec_id">
         <option value="">Every reconciliation</option>
-        <?php foreach (all_recs() as $rr): ?>
-          <option value="<?= (int)$rr['id'] ?>"<?= (string)($r['rec_id'] ?? '') === (string)$rr['id'] ? ' selected' : '' ?>>
-            Only <?= h($rr['name']) ?></option>
+        <?php $rgroups = recs_by_category(all_recs()); foreach ($rgroups as $g): ?>
+          <?php if (count($rgroups) > 1): ?><optgroup label="<?= h($g['label']) ?>"><?php endif; ?>
+          <?php foreach ($g['recs'] as $rr): ?>
+            <option value="<?= (int)$rr['id'] ?>"<?= (string)($r['rec_id'] ?? '') === (string)$rr['id'] ? ' selected' : '' ?>>
+              Only <?= h($rr['name']) ?></option>
+          <?php endforeach; ?>
+          <?php if (count($rgroups) > 1): ?></optgroup><?php endif; ?>
         <?php endforeach; ?>
       </select>
       <p class="small muted">Most rules belong to every reconciliation &mdash; &ldquo;same day, same
