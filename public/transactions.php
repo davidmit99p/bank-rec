@@ -830,7 +830,10 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
             <tr<?= $isMatched ? ' style="opacity:.6"' : '' ?>>
               <?php if ($tickFirst) echo '<td class="tickcell">' . $box . $splitBtn . $noteBtn . '</td>'; ?>
               <td class="small"><?= h($t['txn_date']) ?></td>
-              <td class="desc" title="<?= h($t['description']) ?>"><?= h($t['description']) ?>
+              <?php // the description shortens with an ellipsis; the tags sit
+                    // outside it, so a long narrative never hides them ?>
+              <td class="desccell">
+                <span class="desc" title="<?= h($t['description']) ?>"><?= h($t['description']) ?></span><span class="rowtags">
                 <?php if (!empty($t['parent_id'])): ?>
                   <span class="tag" title="split out of <?= h(money($t['parent_value'] ?? 0)) ?> on <?= h($t['txn_date']) ?>">split</span>
                 <?php endif; ?>
@@ -844,7 +847,7 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
                   <span class="tag"><?= h($t['run_ref']) ?></span>
                   <a class="tag" href="trace.php?txn=<?= (int)$t['id'] ?>"
                      style="text-decoration:none">trace</a>
-                <?php endif; ?></td>
+                <?php endif; ?></span></td>
               <?php foreach (array_keys(extra_labels($side)) as $key): ?>
                 <td class="small desc" title="<?= h((string)($t[$key] ?? '')) ?>"><?= h((string)($t[$key] ?? '')) ?></td>
               <?php endforeach; ?>

@@ -202,3 +202,11 @@ thead:has(.colfilters) th{position:static}
 /* a group note's reference on a transaction row */
 .tag.grouptag{background:#e8eef7;color:#33507a;text-decoration:none;font-weight:600}
 .tag.grouptag:hover{background:#d9e2ef}
+
+/* the description cell: the narrative shortens, its tags do not. A long
+   description used to push the group note and rule tags out of sight. */
+.desccell{max-width:32rem}
+.desccell .desc{display:inline-block;max-width:24ch;vertical-align:bottom}
+.desccell .rowtags{white-space:nowrap}
+.desccell .rowtags .tag{margin-left:.2rem}
+@media (min-width:1500px){ .desccell .desc{max-width:34ch} }
