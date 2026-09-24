@@ -112,7 +112,7 @@ if (isset($_GET['csv'])) {
     if ($snap && $snap['approved_at']) {
         $put(['Approved', date('j M Y H:i', strtotime($snap['approved_at'])),
               'by', user_name($snap['approved_by']),
-              self_approved($snap) ? 'the same person who took it' : '']);
+              self_approved($snap) ? 'self-approved' : '']);
         if (!empty($snap['approved_note'])) $put(['Approval note', $snap['approved_note']]);
     } elseif ($snap) {
         $put(['Approved', 'not yet']);
@@ -163,7 +163,7 @@ endif; ?>
       <span class="pos">&middot; approved <?= h(date('j M Y', strtotime($snap['approved_at']))) ?>
         by <?= h(user_name($snap['approved_by']) ?: 'someone') ?></span>
       <?php if (self_approved($snap)): ?>
-        <span class="muted small">(the same person who took it)</span>
+        <span class="muted small">(self-approved)</span>
       <?php endif; ?>
     <?php endif; ?>
     <a class="btn ghost small" style="float:right" href="statement.php">Back to the live statement</a>
@@ -303,8 +303,8 @@ $flat = abs($f['unexplained']) < 0.005;
     <p style="margin:0"><b>Approved</b> by <?= h(user_name($snap['approved_by']) ?: 'someone') ?>
       on <?= h(date('j M Y \a\t H:i', strtotime($snap['approved_at']))) ?>.
       <?php if (self_approved($snap)): ?>
-        <span class="muted">This was approved by the same person who took it, which is recorded
-          here rather than glossed over.</span>
+        <span class="muted">Self-approved: the person who took this snap is the person who
+          signed it, so nobody independent has checked it. Recorded here rather than glossed over.</span>
       <?php endif; ?></p>
     <?php if (!empty($snap['approved_note'])): ?>
       <p style="margin:.5rem 0 0"><?= nl2br(h($snap['approved_note'])) ?></p>
@@ -382,7 +382,7 @@ $flat = abs($f['unexplained']) < 0.005;
       <td class="small"><?php if ($s['approved_at']): ?>
           <?= h(date('d/m/Y', strtotime($s['approved_at']))) ?>
           <span class="muted"><?= h(user_name($s['approved_by']) ?: '') ?></span>
-          <?php if (self_approved($s)): ?><br><span class="muted">by whoever took it</span><?php endif; ?>
+          <?php if (self_approved($s)): ?><br><span class="muted">self-approved</span><?php endif; ?>
         <?php else: ?>
           <a href="?snap=<?= (int)$s['id'] ?>">Not yet</a>
         <?php endif; ?></td>
