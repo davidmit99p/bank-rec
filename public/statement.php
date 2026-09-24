@@ -57,6 +57,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $ready) {
         header('Location: statement.php');
         exit;
     }
+    if (($_POST['action'] ?? '') === 'approve') {
+        $id = (int)($_POST['id'] ?? 0);
+        [$ok, $msg] = approve_snap($id, $_POST['approved_note'] ?? '');
+        flash($msg);
+        header('Location: statement.php?snap=' . $id);
+        exit;
+    }
+    if (($_POST['action'] ?? '') === 'withdraw') {
+        $id = (int)($_POST['id'] ?? 0);
+        [$ok, $msg] = withdraw_approval($id);
+        flash($msg);
+        header('Location: statement.php?snap=' . $id);
+        exit;
+    }
 }
 
 // --- a snap, or the live position ---------------------------------------------
@@ -95,6 +109,14 @@ if (isset($_GET['csv'])) {
     $put(['As at', date('j M Y', strtotime($f['as_at']))]);
     if ($snap) $put(['Snapped', date('j M Y H:i', strtotime($snap['created_at'])),
                      'by', user_name($snap['created_by'])]);
+    if ($snap && $snap['approved_at']) {
+        $put(['Approved', date('j M Y H:i', strtotime($snap['approved_at'])),
+              'by', user_name($snap['approved_by']),
+              self_approved($snap) ? 'the same person who took it' : '']);
+        if (!empty($snap['approved_note'])) $put(['Approval note', $snap['approved_note']]);
+    } elseif ($snap) {
+        $put(['Approved', 'not yet']);
+    }
     $put([]);
     foreach ([['l', 'b'], ['b', 'l']] as [$me, $other]) {
         $put(['Balance per ' . $f[$me . '_label'], $num($f[$me . '_bal']),
@@ -140,6 +162,9 @@ endif; ?>
     <?php if ($snap['approved_at']): ?>
       <span class="pos">&middot; approved <?= h(date('j M Y', strtotime($snap['approved_at']))) ?>
         by <?= h(user_name($snap['approved_by']) ?: 'someone') ?></span>
+      <?php if (self_approved($snap)): ?>
+        <span class="muted small">(the same person who took it)</span>
+      <?php endif; ?>
     <?php endif; ?>
     <a class="btn ghost small" style="float:right" href="statement.php">Back to the live statement</a>
     <p class="small muted" style="margin:.4rem 0 0">This is a copy taken at the time. Nothing that has
@@ -271,6 +296,52 @@ $flat = abs($f['unexplained']) < 0.005;
   <?php endif; ?>
 </div>
 
+<?php if ($snap): ?>
+<h2>Approval</h2>
+<?php if ($snap['approved_at']): ?>
+  <div class="panel" style="background:#eef6ee;border-color:#cfe3cf">
+    <p style="margin:0"><b>Approved</b> by <?= h(user_name($snap['approved_by']) ?: 'someone') ?>
+      on <?= h(date('j M Y \a\t H:i', strtotime($snap['approved_at']))) ?>.
+      <?php if (self_approved($snap)): ?>
+        <span class="muted">This was approved by the same person who took it, which is recorded
+          here rather than glossed over.</span>
+      <?php endif; ?></p>
+    <?php if (!empty($snap['approved_note'])): ?>
+      <p style="margin:.5rem 0 0"><?= nl2br(h($snap['approved_note'])) ?></p>
+    <?php endif; ?>
+    <p class="small muted" style="margin:.5rem 0 0">An approved snap cannot be removed.</p>
+    <?php if (is_admin()): ?>
+      <form method="post" style="margin-top:.5rem"
+            onsubmit="return confirm('Withdraw this approval? It goes in the log.')">
+        <input type="hidden" name="action" value="withdraw">
+        <input type="hidden" name="id" value="<?= (int)$snap['id'] ?>">
+        <button class="btn ghost small" type="submit">Withdraw the approval</button>
+      </form>
+    <?php endif; ?>
+  </div>
+<?php else: ?>
+  <p class="muted">Approving says you have looked at this statement and accept it. It is the second
+    pair of eyes that makes a reconciliation worth something to an auditor, so it is kept separately
+    from taking the snap &mdash; and once approved, the snap can no longer be removed.</p>
+  <form method="post" class="panel" onsubmit="this.querySelector('button').disabled=true">
+    <input type="hidden" name="action" value="approve">
+    <input type="hidden" name="id" value="<?= (int)$snap['id'] ?>">
+    <label>What you have checked <span class="muted small">(optional)</span></label>
+    <textarea name="approved_note" rows="2"
+      placeholder="e.g. agreed to the March statement; the 86.60 is the disputed carriage charge"></textarea>
+    <?php if (current_user_id() !== null && (int)$snap['created_by'] === (int)current_user_id()): ?>
+      <p class="small muted">You took this snap yourself. You can still approve it &mdash; plenty of
+        people work alone &mdash; and it will say so.</p>
+    <?php endif; ?>
+    <?php if (abs((float)$snap['unexplained']) >= 0.005): ?>
+      <p class="small" style="color:#a6431f">This statement has an unexplained difference of
+        <?= money($snap['unexplained']) ?>. Approving it accepts that difference.</p>
+    <?php endif; ?>
+    <button class="btn" type="submit">Approve this snap</button>
+  </form>
+<?php endif; ?>
+<?php endif; ?>
+
 <?php if (!$snap): ?>
 <h2>Snap it</h2>
 <p class="muted">A snap keeps this page exactly as it reads now &mdash; both balances, every
@@ -308,16 +379,21 @@ $flat = abs($f['unexplained']) < 0.005;
       <td class="num muted"><?= (int)$s['n'] ?></td>
       <td class="small"><?= h(date('d/m/Y', strtotime($s['created_at']))) ?>
         <span class="muted"><?= h(user_name($s['created_by']) ?: '') ?></span></td>
-      <td class="small"><?= $s['approved_at']
-            ? h(date('d/m/Y', strtotime($s['approved_at'])) . ' ' . (user_name($s['approved_by']) ?: ''))
-            : '<span class="muted">&mdash;</span>' ?></td>
+      <td class="small"><?php if ($s['approved_at']): ?>
+          <?= h(date('d/m/Y', strtotime($s['approved_at']))) ?>
+          <span class="muted"><?= h(user_name($s['approved_by']) ?: '') ?></span>
+          <?php if (self_approved($s)): ?><br><span class="muted">by whoever took it</span><?php endif; ?>
+        <?php else: ?>
+          <a href="?snap=<?= (int)$s['id'] ?>">Not yet</a>
+        <?php endif; ?></td>
       <td class="num"><a class="btn ghost small" href="?<?= h(http_build_query(['snap' => $s['id'], 'csv' => 1])) ?>">Download</a></td>
     </tr>
   <?php endforeach; ?>
   </tbody>
 </table>
 </div>
-<p class="small muted">Approving a snap &mdash; a second person signing to say they have looked at it
-  &mdash; comes next. The column is here so the snaps taken before then can still be approved.</p>
+<p class="small muted">Open a snap to approve it. Anyone signed in can &mdash; a reconciliation
+  prepared and reviewed by the same person is still worth signing, and the page says plainly when
+  that is what happened.</p>
 <?php endif; ?>
 <?php render_footer(); ?>

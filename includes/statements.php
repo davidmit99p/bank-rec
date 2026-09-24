@@ -171,6 +171,11 @@ function save_snap(array $f, $note)
         }
     }
     $n = count($f['l_items']) + count($f['b_items']);
+    if (function_exists('log_event')) {
+        log_event('took a snap', 'As at ' . $f['as_at'] . ', unexplained '
+                  . number_format((float)$f['unexplained'], 2) . ', ' . $n . ' reconciling items',
+                  recs_ready() ? rec_id() : null);
+    }
     return [true, 'Snapped as at ' . date('j M Y', strtotime($f['as_at'])) . ', with '
                   . $n . ' reconciling item' . ($n === 1 ? '' : 's') . '.', $id];
 }
@@ -238,5 +243,86 @@ function delete_snap($id)
     $pdo = db();
     $pdo->prepare("DELETE FROM rec_statement_lines WHERE statement_id = ?")->execute([(int)$id]);
     $pdo->prepare("DELETE FROM rec_statements WHERE id = ?")->execute([(int)$id]);
+    if (function_exists('log_event')) {
+        log_event('removed a snap', 'As at ' . $s['as_at'] . ', taken ' . $s['created_at'], $s['rec_id']);
+    }
     return [true, 'Snap of ' . date('j M Y', strtotime($s['as_at'])) . ' removed.'];
+}
+
+// --- approving a snap ---------------------------------------------------------
+//
+// A snap says what the position was. An approval says somebody other than the
+// preparer has looked at it and accepts it - the second pair of eyes that makes
+// a reconciliation worth anything to an auditor.
+//
+// Anyone signed in can approve, because plenty of these will be prepared and
+// reviewed by the same small team, and one person working alone still needs to
+// be able to sign off. Approving your own snap is allowed but recorded as such,
+// which is the honest way round: the page does not pretend a second person
+// looked at it.
+
+// Migration 020 adds somewhere for the approver to write what they checked.
+function approval_notes_ready()
+{
+    static $ok = null;
+    if ($ok === null) {
+        try { db()->query("SELECT approved_note FROM rec_statements LIMIT 1"); $ok = true; }
+        catch (Throwable $e) { $ok = false; }
+    }
+    return $ok;
+}
+
+function approve_snap($id, $note)
+{
+    if (!statements_ready()) return [false, 'Not available yet.'];
+    $s = get_snap($id);
+    if (!$s) return [false, 'That snap no longer exists.'];
+    if (!empty($s['approved_at'])) {
+        return [false, 'That snap was already approved by '
+                       . (user_name($s['approved_by']) ?: 'someone') . '.'];
+    }
+    $me   = function_exists('current_user_id') ? current_user_id() : null;
+    $note = trim((string)$note);
+
+    if (approval_notes_ready()) {
+        db()->prepare("UPDATE rec_statements SET approved_at = NOW(), approved_by = ?, approved_note = ?
+                       WHERE id = ?")->execute([$me, $note === '' ? null : $note, (int)$id]);
+    } else {
+        db()->prepare("UPDATE rec_statements SET approved_at = NOW(), approved_by = ? WHERE id = ?")
+            ->execute([$me, (int)$id]);
+    }
+    if (function_exists('log_event')) {
+        log_event('approved a snap', 'Snap as at ' . $s['as_at'] . ', unexplained '
+                  . number_format((float)$s['unexplained'], 2), $s['rec_id']);
+    }
+    $own = $me !== null && (int)$s['created_by'] === (int)$me;
+    return [true, 'Approved' . ($own ? ' - recorded as your own snap, approved by you.' : '.')];
+}
+
+// An approval that could be quietly undone would not be worth having, so this
+// is an administrator's job and it is written to the log.
+function withdraw_approval($id)
+{
+    if (!statements_ready()) return [false, 'Not available yet.'];
+    $s = get_snap($id);
+    if (!$s) return [false, 'That snap no longer exists.'];
+    if (empty($s['approved_at'])) return [false, 'That snap has not been approved.'];
+    if (function_exists('is_admin') && !is_admin()) {
+        return [false, 'Only an administrator can withdraw an approval.'];
+    }
+    $cols = "approved_at = NULL, approved_by = NULL" . (approval_notes_ready() ? ", approved_note = NULL" : "");
+    db()->prepare("UPDATE rec_statements SET {$cols} WHERE id = ?")->execute([(int)$id]);
+    if (function_exists('log_event')) {
+        log_event('withdrew a snap approval',
+                  'Snap as at ' . $s['as_at'] . ', approved ' . $s['approved_at']
+                  . ' by ' . (user_name($s['approved_by']) ?: 'someone'), $s['rec_id']);
+    }
+    return [true, 'Approval withdrawn. The snap itself is unchanged.'];
+}
+
+// Was this snap approved by the person who took it? Worth saying out loud.
+function self_approved(array $s)
+{
+    return !empty($s['approved_at']) && $s['approved_by'] !== null
+           && (int)$s['approved_by'] === (int)$s['created_by'];
 }
