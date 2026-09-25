@@ -10,8 +10,13 @@ require_once __DIR__ . '/../includes/layout.php';
 
 $pdo = db();
 
-const PIVOT_MAX_ROWS = 300;
-const PIVOT_MAX_COLS = 40;
+// What a browser can usefully draw. Rows are cheap and a long list of accounts
+// that disagree is exactly what you came for, so the row limit is generous;
+// what actually hurts is the number of CELLS, which is what the third one
+// guards. 434 accounts by 12 months is fine. 1,000 by 40 is not.
+const PIVOT_MAX_ROWS  = 1000;
+const PIVOT_MAX_COLS  = 40;
+const PIVOT_MAX_CELLS = 15000;
 
 // --- what can be pivoted on --------------------------------------------------
 //
@@ -45,6 +50,47 @@ function pivot_dims()
                                              'lcol' => $lcol, 'rcol' => $rcol];
     }
     return $dims;
+}
+
+// --- narrowing the rows -------------------------------------------------------
+//
+// The "Filter on" box deliberately leaves out whatever is down the side, because
+// filtering Account to one account when Account IS the side leaves a pivot of
+// one row. What you want there is fewer accounts, not one - so this is a
+// separate box that narrows the row values themselves.
+//
+// It reads the way the rule conditions do:
+//   5035            contains 5035
+//   5035,5040,5100  any of those
+//   5000..5999      anything from 5000 to 5999, as text
+//   !CASH           anything that does not contain CASH
+//
+// The row expression is already UPPER(TRIM(...)), so this matches whatever the
+// case of what was typed.
+function pivot_row_where($expr, $raw)
+{
+    $raw = trim((string)$raw);
+    if ($raw === '') return null;
+
+    $not = false;
+    if ($raw[0] === '!') { $not = true; $raw = trim(substr($raw, 1)); }
+    if ($raw === '') return null;
+
+    if (strpos($raw, ',') !== false) {
+        $vals = array_values(array_filter(array_map(
+            fn($v) => strtoupper(trim($v)), explode(',', $raw)), fn($v) => $v !== ''));
+        if (!$vals) return null;
+        $in = implode(',', array_fill(0, count($vals), '?'));
+        return [($not ? "{$expr} NOT IN ({$in})" : "{$expr} IN ({$in})"), $vals];
+    }
+    if (strpos($raw, '..') !== false) {
+        [$a, $b] = array_map('trim', explode('..', $raw, 2));
+        if ($a === '' || $b === '') return null;
+        if (strnatcasecmp($a, $b) > 0) [$a, $b] = [$b, $a];
+        return [($not ? "{$expr} NOT BETWEEN ? AND ?" : "{$expr} BETWEEN ? AND ?"),
+                [strtoupper($a), strtoupper($b)]];
+    }
+    return [($not ? "{$expr} NOT LIKE ?" : "{$expr} LIKE ?"), ['%' . strtoupper($raw) . '%']];
 }
 
 // How a slice's key reads on screen.
@@ -88,6 +134,7 @@ $r    = isset($dims[$_GET['r'] ?? '']) ? $_GET['r'] : null;
 $c    = isset($dims[$_GET['c'] ?? '']) ? $_GET['c'] : '';
 $f    = isset($dims[$_GET['f'] ?? '']) ? $_GET['f'] : '';
 $fv   = trim((string)($_GET['fv'] ?? ''));
+$rf   = trim((string)($_GET['rf'] ?? ''));
 $show = in_array($_GET['show'] ?? '', ['open', 'matched', 'both'], true) ? $_GET['show'] : 'open';
 $opp  = !empty($_GET['opp']);
 // hiding what agrees is the useful default; "all" asks to see everything
@@ -105,7 +152,7 @@ if ($f === $r || $f === $c) { $f = ''; }
 if ($f === '') $fv = '';
 
 // --- totals, one side at a time ----------------------------------------------
-function pivot_side($side, array $dims, $r, $c, $f, $fv, $show)
+function pivot_side($side, array $dims, $r, $c, $f, $fv, $show, $rf = '')
 {
     $p = $side === 'ledger' ? 'l' : 'b';
     $rx = $dims[$r][$p];
@@ -115,6 +162,10 @@ function pivot_side($side, array $dims, $r, $c, $f, $fv, $show)
     if ($show === 'matched') $where[] = matched_where('t');
     $args = [];
     if ($f !== '' && $fv !== '') { $where[] = $dims[$f][$p] . ' = ?'; $args[] = $fv; }
+    if ($rowCond = pivot_row_where($rx, $rf)) {
+        $where[] = $rowCond[0];
+        foreach ($rowCond[1] as $a) $args[] = $a;
+    }
     $st = db()->prepare("SELECT {$rx} rk, {$cx} ck, COALESCE(SUM(t.value), 0) total, COUNT(*) n
                          FROM rec_txns t
                          WHERE " . implode(' AND ', $where) . not_split('t') . "
@@ -140,7 +191,7 @@ $grid = [];          // [row][col] => ['l' => total, 'b' => total, 'ln' => n, 'b
 $noFiles = side_file_id('ledger') === null || side_file_id('bank') === null;
 if (!$noFiles) {
     foreach (['ledger' => 'l', 'bank' => 'b'] as $side => $p) {
-        foreach (pivot_side($side, $dims, $r, $c, $f, $fv, $show) as $row) {
+        foreach (pivot_side($side, $dims, $r, $c, $f, $fv, $show, $rf) as $row) {
             $cell = &$grid[(string)$row['rk']][(string)$row['ck']];
             $cell[$p] = ($cell[$p] ?? 0) + (float)$row['total'];
             $cell[$p . 'n'] = ($cell[$p . 'n'] ?? 0) + (int)$row['n'];
@@ -197,7 +248,8 @@ if ($hide) {
         return false;
     }));
 }
-$tooBig = count($rowKeys) > PIVOT_MAX_ROWS || count($colKeys) > PIVOT_MAX_COLS;
+$tooBig = count($rowKeys) > PIVOT_MAX_ROWS || count($colKeys) > PIVOT_MAX_COLS
+       || count($rowKeys) * max(1, count($colKeys)) > PIVOT_MAX_CELLS;
 
 // every drill-down starts from these, plus the filter if there is one
 $base = ['show' => $show];
@@ -208,7 +260,7 @@ $cellLink = function ($rk, $ck) use ($base, $r, $c, $dims) {
     return 'transactions.php?' . http_build_query($q);
 };
 
-$settings = array_filter(['r' => $r, 'c' => $c, 'f' => $f, 'fv' => $fv, 'show' => $show,
+$settings = array_filter(['r' => $r, 'c' => $c, 'f' => $f, 'fv' => $fv, 'rf' => $rf, 'show' => $show,
                           'opp' => $opp ? 1 : '', 'all' => $hide ? '' : 1],
                          fn($v) => $v !== '' && $v !== null);
 
@@ -260,7 +312,10 @@ $cellHtml = function ($cell, $href, $strong = false) use ($diffOf) {
 <h1>Pivot of differences</h1>
 <p class="muted">Find which slice a difference sits in. Choose what goes down the side and across the
   top; each cell is <?= h(side_label('ledger')) ?> less <?= h(side_label('bank')) ?> for that slice.
-  <b>Click any cell</b> to open the transactions screen filtered to exactly that slice on both sides.</p>
+  <b>Click any cell</b> to open the transactions screen filtered to exactly that slice on both sides.
+  The box on the right narrows what goes down the side: <code>5035</code> for anything containing it,
+  <code>5035,5040</code> for either, <code>5000..5999</code> for a range, <code>!CASH</code> for
+  everything except.</p>
 
 <form method="get" class="panel" style="display:flex;gap:.75rem;align-items:end;flex-wrap:wrap">
   <div><label>Down the side</label>
@@ -290,6 +345,10 @@ $cellHtml = function ($cell, $href, $strong = false) use ($diffOf) {
         <option value="<?= h($v) ?>"<?= $v === $fv ? ' selected' : '' ?>><?= h(pivot_label($f, $v)) ?></option>
       <?php endforeach; ?>
     </select></div>
+  <div><label>Only <?= h(mb_strtolower($dims[$r]['label'])) ?> like</label>
+    <input type="text" name="rf" value="<?= h($rf) ?>" style="width:11rem"
+           placeholder="all of them"
+           title="5035 &middot; 5035,5040 &middot; 5000..5999 &middot; !CASH"></div>
   <div><label>Show</label>
     <select name="show" onchange="this.form.submit()">
       <option value="open"<?= $show === 'open' ? ' selected' : '' ?>>Still to be matched</option>
@@ -321,8 +380,11 @@ if (!$noFiles && !$spareCount): ?>
 <?php elseif ($tooBig): ?>
   <div class="panel" style="background:#fdf6e6;border-color:#e8d9a8">
     <p style="margin:0">That makes <?= number_format(count($rowKeys)) ?> rows by <?= number_format(count($colKeys)) ?>
-      columns &mdash; too many to be useful. Add a filter, or choose something with fewer values
-      (month rather than date, say). The limit is <?= PIVOT_MAX_ROWS ?> rows by <?= PIVOT_MAX_COLS ?> columns.</p>
+      columns &mdash; too many to draw. Narrow the rows with the
+      &ldquo;Only <?= h(mb_strtolower($dims[$r]['label'])) ?> like&rdquo; box, add a filter, or choose
+      something with fewer values across the top (month rather than date, say).
+      The limits are <?= number_format(PIVOT_MAX_ROWS) ?> rows, <?= PIVOT_MAX_COLS ?> columns and
+      <?= number_format(PIVOT_MAX_CELLS) ?> cells between them.</p>
   </div>
 <?php elseif (!$rowKeys): ?>
   <div class="panel"><p class="muted" style="margin:0"><?php
