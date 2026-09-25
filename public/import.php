@@ -72,15 +72,19 @@ function build_preview($rows, $fileId, $token, $name, $headerRow = null, $dataSt
 }
 
 try {
+    // PHP bins an over-sized POST before this file runs, leaving no $_POST and
+    // no $_FILES - so ask about that first, or the checks below blame the user
+    // for not choosing a file they did choose.
+    if ($tooBig = post_was_discarded()) throw new RuntimeException($tooBig);
+
     $stage = $_POST['stage'] ?? '';
 
     // --- a file has just been uploaded ---------------------------------------
     if ($stage === 'upload') {
         $fileId = (int)($_POST['file_id'] ?? 0);
         if (!$fileId || !get_file($fileId)) throw new RuntimeException('Choose which file this is going into.');
-        if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
-            throw new RuntimeException('Please choose a file to upload.');
-        }
+        if (!isset($_FILES['file'])) throw new RuntimeException('Please choose a file to upload.');
+        if ($why = upload_problem($_FILES['file']['error'])) throw new RuntimeException($why);
         $name  = $_FILES['file']['name'];
         $token = bin2hex(random_bytes(8)) . '.' . strtolower(pathinfo($name, PATHINFO_EXTENSION));
         if (!move_uploaded_file($_FILES['file']['tmp_name'], "$storage/$token")) {
@@ -365,7 +369,9 @@ render_header('Import');
           <?php endforeach; ?>
         </select></div>
       <div style="flex:2"><label>Choose a file from your computer</label>
-        <input type="file" name="file" accept=".csv,.txt,.tsv,.xlsx,.xlsm" required></div>
+        <input type="file" name="file" accept=".csv,.txt,.tsv,.xlsx,.xlsm" required>
+        <span class="small muted">up to <?= h(size_label(upload_limit())) ?> &mdash; a bigger one is
+          refused by the server before it gets here</span></div>
       <div><label>&nbsp;</label>
         <button class="btn" type="submit">Upload and preview</button></div>
     </div>
