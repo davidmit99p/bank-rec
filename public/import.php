@@ -404,7 +404,7 @@ render_header('Import');
 <?php endif; ?>
 
 <?php if ($files): $handFile = get_file($pickFile) ?: null; ?>
-<details class="panel" <?= $pickFile ? 'open' : '' ?>>
+<details class="panel" id="handPanel" <?= ($pickFile || $error) ? 'open' : '' ?>>
   <summary><b>Add one transaction by hand</b>
     <span class="muted small">&mdash; for a line genuinely missing from a file</span></summary>
   <p class="muted small">It is marked as keyed in, shows an <b>added</b> tag on the transactions
@@ -414,7 +414,7 @@ render_header('Import');
     <input type="hidden" name="stage" value="hand">
     <div class="row" style="align-items:end">
       <div><label>Into which file</label>
-        <select name="hand_file" required onchange="this.form.submit()">
+        <select name="hand_file" id="handFile" required>
           <option value="">choose...</option>
           <?php foreach ($files as $ff): ?>
             <option value="<?= (int)$ff['id'] ?>"<?= $pickFile === (int)$ff['id'] ? ' selected' : '' ?>>
@@ -427,18 +427,19 @@ render_header('Import');
       <div><label>Amount</label>
         <input type="text" name="hand_value" placeholder="-125.40" required></div>
     </div>
-    <?php if ($handFile): $hl = file_extra_labels($pickFile); ?>
-      <?php if ($hl): ?>
+    <?php // every file's spare fields are drawn once; only the chosen file's are
+          // enabled, and a disabled box is not sent - so nothing reloads when you
+          // change the file and nothing you have typed is lost
+          foreach ($files as $ff): $hl = file_extra_labels($ff['id']); if (!$hl) continue; ?>
+      <div class="handspares" data-file="<?= (int)$ff['id'] ?>" hidden>
         <div class="row">
           <?php foreach ($hl as $col => $label): ?>
             <div><label><?= h($label) ?></label>
-              <input type="text" name="hand_<?= $col ?>" maxlength="255"></div>
+              <input type="text" name="hand_<?= $col ?>" maxlength="255" disabled></div>
           <?php endforeach; ?>
         </div>
-      <?php endif; ?>
-    <?php else: ?>
-      <p class="small muted">Choose the file to see its spare fields.</p>
-    <?php endif; ?>
+      </div>
+    <?php endforeach; ?>
     <label>Why it is being added</label>
     <input type="text" name="hand_why" maxlength="150"
            placeholder="e.g. cheque missing from the statement download">
@@ -446,6 +447,21 @@ render_header('Import');
       <button class="btn" type="submit">Add the transaction</button>
     </div>
   </form>
+  <script>
+  (function () {
+    var pick = document.getElementById('handFile');
+    if (!pick) return;
+    function show() {
+      document.querySelectorAll('.handspares').forEach(function (block) {
+        var mine = block.dataset.file === pick.value;
+        block.hidden = !mine;
+        block.querySelectorAll('input').forEach(function (i) { i.disabled = !mine; });
+      });
+    }
+    pick.addEventListener('change', show);
+    show();
+  })();
+  </script>
 </details>
 <?php endif; ?>
 

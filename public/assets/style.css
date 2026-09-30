@@ -234,3 +234,6 @@ tr.grouphead td .muted{font-weight:400;margin-left:.4rem}
 .fieldbtn{font-size:.72rem;letter-spacing:-.02em}
 .fdside[hidden]{display:none}
 .fdside input[type=text]{width:100%}
+
+/* the hand-entry panel's per-file spare fields */
+.handspares[hidden]{display:none}
