@@ -883,6 +883,9 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
                     // outside it, so a long narrative never hides them ?>
               <td class="desccell">
                 <span class="desc" title="<?= h($t['description']) ?>"><?= h($t['description']) ?></span><span class="rowtags">
+                <?php if (added_by_hand($t)): ?>
+                  <span class="tag manual" title="<?= h((string)$t['source_file']) ?>">added</span>
+                <?php endif; ?>
                 <?php if (!empty($t['parent_id'])): ?>
                   <span class="tag" title="split out of <?= h(money($t['parent_value'] ?? 0)) ?> on <?= h($t['txn_date']) ?>">split</span>
                 <?php endif; ?>

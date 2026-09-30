@@ -98,6 +98,15 @@ function spare_keys()
     return $out;
 }
 
+// How a line keyed in by hand is labelled, wherever it is shown. A file holding
+// one no longer adds up to the document it came from, so it has to say so.
+const HAND_SOURCE = 'Added by hand';
+
+function added_by_hand(array $t)
+{
+    return str_starts_with((string)($t['source_file'] ?? ''), HAND_SOURCE);
+}
+
 // The spare fields a file has been given names for: [column => label].
 function file_extra_labels($fileId)
 {

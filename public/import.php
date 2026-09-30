@@ -143,6 +143,29 @@ try {
         exit;
     }
 
+    // --- one transaction, keyed in rather than imported -----------------------
+    if ($stage === 'hand') {
+        $fileId = (int)($_POST['hand_file'] ?? 0);
+        $row = [
+            trim((string)($_POST['hand_date'] ?? '')),
+            trim(preg_replace('/\s+/', ' ', (string)($_POST['hand_desc'] ?? ''))),
+            parse_amount($_POST['hand_value'] ?? ''),
+        ];
+        foreach (spare_keys() as $k) {
+            $v = trim((string)($_POST['hand_' . $k] ?? ''));
+            $row[] = $v === '' ? null : mb_substr($v, 0, 255);
+        }
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $row[0])) {
+            throw new RuntimeException('Give the transaction a date.');
+        }
+        if ($row[1] === '') $row[1] = '(no description)';
+        [$ok, $msg] = add_one_by_hand($fileId, $row, $_POST['hand_why'] ?? '');
+        if (!$ok) throw new RuntimeException($msg);
+        flash($msg);
+        header('Location: import.php?file=' . $fileId);
+        exit;
+    }
+
     // --- removing a whole file that was loaded earlier -----------------------
     if ($stage === 'remove_import') {
         [$ok, $msg] = delete_import((int)($_POST['import_id'] ?? 0));
@@ -378,6 +401,52 @@ render_header('Import');
   </form>
   <p class="small muted" style="margin-bottom:0">Not there? <a href="files.php">Add a file</a> first.</p>
 </div>
+<?php endif; ?>
+
+<?php if ($files): $handFile = get_file($pickFile) ?: null; ?>
+<details class="panel" <?= $pickFile ? 'open' : '' ?>>
+  <summary><b>Add one transaction by hand</b>
+    <span class="muted small">&mdash; for a line genuinely missing from a file</span></summary>
+  <p class="muted small">It is marked as keyed in, shows an <b>added</b> tag on the transactions
+    screen, and appears in the imports list below so it can be removed again. Remember that a file
+    with a hand-keyed line in it no longer adds up to the document it came from, so say why.</p>
+  <form method="post">
+    <input type="hidden" name="stage" value="hand">
+    <div class="row" style="align-items:end">
+      <div><label>Into which file</label>
+        <select name="hand_file" required onchange="this.form.submit()">
+          <option value="">choose...</option>
+          <?php foreach ($files as $ff): ?>
+            <option value="<?= (int)$ff['id'] ?>"<?= $pickFile === (int)$ff['id'] ? ' selected' : '' ?>>
+              <?= h($ff['name']) ?></option>
+          <?php endforeach; ?>
+        </select></div>
+      <div><label>Date</label><input type="date" name="hand_date" required></div>
+      <div style="flex:2"><label>Description</label>
+        <input type="text" name="hand_desc" placeholder="what it is" maxlength="500"></div>
+      <div><label>Amount</label>
+        <input type="text" name="hand_value" placeholder="-125.40" required></div>
+    </div>
+    <?php if ($handFile): $hl = file_extra_labels($pickFile); ?>
+      <?php if ($hl): ?>
+        <div class="row">
+          <?php foreach ($hl as $col => $label): ?>
+            <div><label><?= h($label) ?></label>
+              <input type="text" name="hand_<?= $col ?>" maxlength="255"></div>
+          <?php endforeach; ?>
+        </div>
+      <?php endif; ?>
+    <?php else: ?>
+      <p class="small muted">Choose the file to see its spare fields.</p>
+    <?php endif; ?>
+    <label>Why it is being added</label>
+    <input type="text" name="hand_why" maxlength="150"
+           placeholder="e.g. cheque missing from the statement download">
+    <div class="actions">
+      <button class="btn" type="submit">Add the transaction</button>
+    </div>
+  </form>
+</details>
 <?php endif; ?>
 
 <h2>Imports already loaded</h2>
