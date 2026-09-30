@@ -260,7 +260,19 @@ if (($_POST['action'] ?? '') === 'fields') {
     foreach (spare_keys() as $k) {
         if (isset($_POST['fv_' . $k])) $vals[$k] = $_POST['fv_' . $k];
     }
-    [$ok, $msg] = save_fields_on($side, (int)($_POST['txn_id'] ?? 0), $vals);
+    $id = (int)($_POST['txn_id'] ?? 0);
+    // a file with no spare fields can still have a date or description put right
+    [$ok, $msg] = extra_labels($side) ? save_fields_on($side, $id, $vals)
+                                      : [true, 'No change to save.'];
+    // the date and the description are amended rather than simply overwritten
+    if ($ok && amend_ready() && (isset($_POST['fd_date']) || isset($_POST['fd_desc']))) {
+        [$ok2, $msg2] = amend_core_on($side, $id, $_POST['fd_date'] ?? '', $_POST['fd_desc'] ?? '',
+                                      $_POST['fd_why'] ?? '');
+        if (!$ok2) { $error = $msg2; $ok = false; }
+        elseif ($msg2 !== 'No change to save.') {
+            $msg = $msg === 'No change to save.' ? $msg2 : $msg . ' ' . $msg2;
+        }
+    }
     if ($ok) {
         flash($msg);
         header('Location: transactions.php?' . http_build_query($_POST['back'] ?? []));
@@ -845,16 +857,19 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
                     . ($has ? '&#9998;' : '&#9997;') . '</button>';
               }
               $fieldBtn = '';
-              if (extras_ready() && extra_labels($side)) {
+              if (extras_ready() && (extra_labels($side) || amend_ready())) {
                   $vals = [];
                   foreach (array_keys(extra_labels($side)) as $k) $vals[$k] = (string)($t[$k] ?? '');
                   $fieldBtn = '<button type="button" class="notebtn fieldbtn"'
-                    . ' title="Correct this line\'s spare fields"'
+                    . ' title="Correct this line"'
                     . ' data-side="' . $side . '"'
                     . ' data-id="' . (int)$t['id'] . '"'
                     . ' data-date="' . h($t['txn_date']) . '"'
                     . ' data-value="' . h(money($t['value'])) . '"'
                     . ' data-desc="' . h($t['description']) . '"'
+                    . ' data-rawdate="' . h((string)$t['txn_date']) . '"'
+                    . ' data-rawdesc="' . h((string)$t['description']) . '"'
+                    . ' data-why="' . h((string)($t['amend_why'] ?? '')) . '"'
                     . ' data-vals="' . h(json_encode($vals)) . '">&#9998;&#8202;f</button>';
               }
               $splitBtn = '';
@@ -878,11 +893,11 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
             <tr<?= $isMatched ? ' style="opacity:.6"' : '' ?>>
               <?php if ($tickFirst) echo '<td class="tickcell">' . $box . $splitBtn . $noteBtn . $fieldBtn . '</td>'; ?>
               <?php if (!$coreFirst) echo $extraTds; ?>
-              <td class="small"><?= h($t['txn_date']) ?></td>
+              <td class="small"><?= h($t['txn_date']) ?><?= amend_ready() ? amend_mark($t, 'date') : '' ?></td>
               <?php // the description shortens with an ellipsis; the tags sit
                     // outside it, so a long narrative never hides them ?>
               <td class="desccell">
-                <span class="desc" title="<?= h($t['description']) ?>"><?= h($t['description']) ?></span><span class="rowtags">
+                <span class="desc" title="<?= h($t['description']) ?>"><?= h($t['description']) ?></span><?= amend_ready() ? amend_mark($t, 'desc') : '' ?><span class="rowtags">
                 <?php if (added_by_hand($t)): ?>
                   <span class="tag manual" title="<?= h((string)$t['source_file']) ?>">added</span>
                 <?php endif; ?>
@@ -1314,7 +1329,7 @@ document.addEventListener('click', function (e) {
 </script>
 <?php endif; ?>
 
-<?php if (extras_ready() && (extra_labels('ledger') || extra_labels('bank'))): ?>
+<?php if (extras_ready() && (extra_labels('ledger') || extra_labels('bank') || amend_ready())): ?>
 <dialog id="fieldDlg" class="split-dlg">
   <form method="post">
     <input type="hidden" name="action" value="fields">
@@ -1323,8 +1338,21 @@ document.addEventListener('click', function (e) {
     <?php foreach ($back as $k => $v): ?>
       <input type="hidden" name="back[<?= h($k) ?>]" value="<?= h($v) ?>">
     <?php endforeach; ?>
-    <h2 style="margin-top:0">Correct the spare fields</h2>
+    <h2 style="margin-top:0">Correct this line</h2>
     <p class="muted small" id="fdSummary"></p>
+    <?php if (amend_ready()): ?>
+      <div class="row">
+        <div><label>Date</label><input type="date" name="fd_date" id="fdDate"></div>
+        <div style="flex:3"><label>Description</label>
+          <input type="text" name="fd_desc" id="fdDesc" maxlength="500"></div>
+      </div>
+      <label>Why it is being corrected</label>
+      <input type="text" name="fd_why" id="fdWhy" maxlength="255"
+             placeholder="e.g. the source file had the posting date wrong">
+      <p class="small muted" style="margin:.2rem 0 .6rem">A changed date or description keeps what the
+        file said and shows a <b>*</b> beside it; hover the star to see the original. The amount is
+        never editable &mdash; it decides what matches what.</p>
+    <?php endif; ?>
     <?php foreach (['ledger', 'bank'] as $sd): $lab = extra_labels($sd); if (!$lab) continue; ?>
       <div class="fdside" data-side="<?= $sd ?>" hidden>
         <?php foreach ($lab as $col => $label): ?>
@@ -1337,8 +1365,7 @@ document.addEventListener('click', function (e) {
     <div class="actions">
       <button class="btn" type="submit">Save</button>
       <button class="btn ghost" type="button" id="fdCancel">Cancel</button>
-      <span class="muted small" style="margin-left:auto">The date, description and amount are not
-        editable &mdash; they decide what matches what.</span>
+      <span class="muted small" style="margin-left:auto">The amount is not editable.</span>
     </div>
   </form>
 </dialog>
@@ -1353,6 +1380,12 @@ document.addEventListener('click', function (e) {
       document.getElementById('fdId').value   = btn.dataset.id;
       document.getElementById('fdSummary').textContent =
         btn.dataset.date + '  ' + btn.dataset.desc + '  ' + btn.dataset.value;
+      var d = document.getElementById('fdDate');
+      if (d) {
+        d.value = btn.dataset.rawdate || '';
+        document.getElementById('fdDesc').value = btn.dataset.rawdesc || '';
+        document.getElementById('fdWhy').value  = btn.dataset.why || '';
+      }
       var vals = {};
       try { vals = JSON.parse(btn.dataset.vals || '{}'); } catch (err) {}
       // only this side's boxes are shown, and only they are sent

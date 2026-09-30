@@ -55,6 +55,7 @@ $head = ['Date', 'Description', 'Value', 'Status', 'Rule', 'Run',
 if (issues_ready()) $head[] = 'Group';   // the system's own number for the line
 foreach (extra_labels($side) as $label) $head[] = $label;
 if (extras_ready()) $head[] = 'Notes';
+if (amend_ready()) { $head[] = 'Date as loaded'; $head[] = 'Description as loaded'; $head[] = 'Why amended'; }
 fputcsv($out, $head);
 
 $total = 0.0;
@@ -77,6 +78,11 @@ foreach ($rows as $r) {
     }
     foreach (array_keys(extra_labels($side)) as $key) $line[] = $r[$key] ?? '';
     if (extras_ready()) $line[] = $r['notes'] ?? '';
+    if (amend_ready()) {
+        $line[] = $r['orig_txn_date'] ?? '';
+        $line[] = $r['orig_description'] ?? '';
+        $line[] = $r['amend_why'] ?? '';
+    }
     fputcsv($out, $line);
 }
 

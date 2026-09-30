@@ -237,3 +237,6 @@ tr.grouphead td .muted{font-weight:400;margin-left:.4rem}
 
 /* the hand-entry panel's per-file spare fields */
 .handspares[hidden]{display:none}
+
+/* the star beside a date or description that has been put right */
+.amended{color:var(--warn);font-weight:700;margin-left:.15rem;cursor:help}

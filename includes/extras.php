@@ -90,6 +90,106 @@ function save_fields_on($side, $id, array $vals)
     return [true, 'Saved ' . implode(' and ', $changed) . '.'];
 }
 
+// --- putting right a date or a description the source file had wrong ----------
+//
+// The amount is never touched: changing it after a match would leave a match
+// that no longer balances. A date or a description carries no such risk, but it
+// is still what the file said, so the loaded value is kept the first time a line
+// is amended and every screen marks the line and can show what it was.
+
+// Has migration_022 been run?
+function amend_ready()
+{
+    static $ok = null;
+    if ($ok === null) {
+        try { db()->query("SELECT orig_txn_date, amended_at FROM rec_txns LIMIT 1"); $ok = true; }
+        catch (Throwable $e) { $ok = false; }
+    }
+    return $ok;
+}
+
+// Amend the date, the description or both. $why is kept with the line.
+function amend_core_on($side, $id, $date, $desc, $why = '')
+{
+    if (!amend_ready()) {
+        return [false, 'The database has not been updated for amendments yet - run '
+            . 'sql/migration_022_amendments.sql.'];
+    }
+    $before = get_txn_on($side, $id);
+    if (!$before) return [false, 'That transaction is not on this side.'];
+
+    $date = trim((string)$date);
+    $desc = trim(preg_replace('/\s+/', ' ', (string)$desc));
+    if ($date !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+        return [false, 'That is not a date the tool understands.'];
+    }
+
+    $set = $args = [];
+    $changed = [];
+    // [column, original-keeping column, new value, what it is called]
+    $pairs = [['txn_date', 'orig_txn_date', $date === '' ? null : $date, 'date'],
+              ['description', 'orig_description', $desc === '' ? null : mb_substr($desc, 0, 500), 'description']];
+
+    foreach ($pairs as [$col, $origCol, $new, $what]) {
+        if ($new === null) continue;                                  // left alone
+        if ((string)$before[$col] === (string)$new) continue;         // no change
+        $orig = $before[$origCol];
+        if ($orig === null) {
+            // first amendment: keep what was loaded
+            $set[] = "{$origCol} = ?";
+            $args[] = $before[$col];
+            $orig = $before[$col];
+        } elseif ((string)$orig === (string)$new) {
+            // put back to what the file said - it is no longer an amendment
+            $set[] = "{$origCol} = NULL";
+        }
+        $set[]  = "{$col} = ?";
+        $args[] = $new;
+        $changed[] = $what;
+    }
+    if (!$set) return [true, 'No change to save.'];
+
+    $why = trim((string)$why);
+    $u   = function_exists('current_user') ? current_user() : null;
+    $still = "(orig_txn_date IS NOT NULL OR orig_description IS NOT NULL)";
+    $set[] = "amended_at = CASE WHEN {$still} THEN NOW() ELSE NULL END";
+    $set[] = "amended_by = CASE WHEN {$still} THEN ? ELSE NULL END";
+    $args[] = $u['name'] ?? null;
+    $set[] = "amend_why = CASE WHEN {$still} THEN ? ELSE NULL END";
+    $args[] = $why === '' ? null : mb_substr($why, 0, 255);
+
+    $args[] = (int)$id;
+    db()->prepare("UPDATE rec_txns SET " . implode(', ', $set) . " WHERE id = ? AND "
+                  . file_where($side, ''))->execute($args);
+
+    if (function_exists('log_event')) {
+        log_event('amended a transaction', 'id ' . (int)$id . ': ' . implode(' and ', $changed)
+            . ($why === '' ? '' : ' - ' . $why));
+    }
+    return [true, 'Saved the ' . implode(' and ', $changed) . '. The line is marked as amended.'];
+}
+
+// Has this line been amended, and in which field?
+function amended_field(array $t, $which)
+{
+    $col = $which === 'date' ? 'orig_txn_date' : 'orig_description';
+    return ($t[$col] ?? null) !== null;
+}
+
+// The little star beside an amended value, saying what the file said.
+function amend_mark(array $t, $which)
+{
+    if (!amended_field($t, $which)) return '';
+    $was = $which === 'date' ? $t['orig_txn_date'] : $t['orig_description'];
+    $tip = 'The file said: ' . $was;
+    if (!empty($t['amended_at'])) {
+        $tip .= "\nAmended " . date('j M Y', strtotime((string)$t['amended_at']));
+        if (!empty($t['amended_by'])) $tip .= ' by ' . $t['amended_by'];
+    }
+    if (!empty($t['amend_why'])) $tip .= "\n" . $t['amend_why'];
+    return '<span class="amended" title="' . h($tip) . '">*</span>';
+}
+
 // One transaction, if it belongs to this side's file.
 function get_txn_on($side, $id)
 {
