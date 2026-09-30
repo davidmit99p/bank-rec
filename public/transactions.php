@@ -253,6 +253,22 @@ if (($_POST['action'] ?? '') === 'note') {
     $error = $msg;
 }
 
+// --- correcting the spare fields of one transaction --------------------------
+if (($_POST['action'] ?? '') === 'fields') {
+    $side = ($_POST['side'] ?? '') === 'bank' ? 'bank' : 'ledger';
+    $vals = [];
+    foreach (spare_keys() as $k) {
+        if (isset($_POST['fv_' . $k])) $vals[$k] = $_POST['fv_' . $k];
+    }
+    [$ok, $msg] = save_fields_on($side, (int)($_POST['txn_id'] ?? 0), $vals);
+    if ($ok) {
+        flash($msg);
+        header('Location: transactions.php?' . http_build_query($_POST['back'] ?? []));
+        exit;
+    }
+    $error = $msg;
+}
+
 // --- splitting one transaction into parts ------------------------------------
 if (($_POST['action'] ?? '') === 'split') {
     $side = ($_POST['side'] ?? '') === 'bank' ? 'bank' : 'ledger';
@@ -816,6 +832,19 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
                     . ' data-note="' . h((string)($t['notes'] ?? '')) . '">'
                     . ($has ? '&#9998;' : '&#9997;') . '</button>';
               }
+              $fieldBtn = '';
+              if (extras_ready() && extra_labels($side)) {
+                  $vals = [];
+                  foreach (array_keys(extra_labels($side)) as $k) $vals[$k] = (string)($t[$k] ?? '');
+                  $fieldBtn = '<button type="button" class="notebtn fieldbtn"'
+                    . ' title="Correct this line\'s spare fields"'
+                    . ' data-side="' . $side . '"'
+                    . ' data-id="' . (int)$t['id'] . '"'
+                    . ' data-date="' . h($t['txn_date']) . '"'
+                    . ' data-value="' . h(money($t['value'])) . '"'
+                    . ' data-desc="' . h($t['description']) . '"'
+                    . ' data-vals="' . h(json_encode($vals)) . '">&#9998;&#8202;f</button>';
+              }
               $splitBtn = '';
               if (splits_ready() && !$isMatched) {
                   $splitBtn = '<button type="button" class="splitbtn" title="Split this into parts"'
@@ -828,7 +857,7 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
               }
           ?>
             <tr<?= $isMatched ? ' style="opacity:.6"' : '' ?>>
-              <?php if ($tickFirst) echo '<td class="tickcell">' . $box . $splitBtn . $noteBtn . '</td>'; ?>
+              <?php if ($tickFirst) echo '<td class="tickcell">' . $box . $splitBtn . $noteBtn . $fieldBtn . '</td>'; ?>
               <td class="small"><?= h($t['txn_date']) ?></td>
               <?php // the description shortens with an ellipsis; the tags sit
                     // outside it, so a long narrative never hides them ?>
@@ -852,7 +881,7 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
                 <td class="small desc" title="<?= h((string)($t[$key] ?? '')) ?>"><?= h((string)($t[$key] ?? '')) ?></td>
               <?php endforeach; ?>
               <td class="num <?= $t['value'] < 0 ? 'neg' : '' ?>"><?= money($t['value']) ?></td>
-              <?php if (!$tickFirst) echo '<td class="tickcell">' . $noteBtn . $splitBtn . $box . '</td>'; ?>
+              <?php if (!$tickFirst) echo '<td class="tickcell">' . $fieldBtn . $noteBtn . $splitBtn . $box . '</td>'; ?>
             </tr>
           <?php endforeach; ?>
           <?php if (!$rows): ?><tr><td colspan="<?= 4 + count(extra_labels($side)) ?>" class="muted"><?php
@@ -1259,6 +1288,67 @@ document.addEventListener('click', function (e) {
       return;
     }
     if (e.target.closest('#ntCancel')) dlg.close();
+  });
+})();
+</script>
+<?php endif; ?>
+
+<?php if (extras_ready() && (extra_labels('ledger') || extra_labels('bank'))): ?>
+<dialog id="fieldDlg" class="split-dlg">
+  <form method="post">
+    <input type="hidden" name="action" value="fields">
+    <input type="hidden" name="side"   id="fdSide">
+    <input type="hidden" name="txn_id" id="fdId">
+    <?php foreach ($back as $k => $v): ?>
+      <input type="hidden" name="back[<?= h($k) ?>]" value="<?= h($v) ?>">
+    <?php endforeach; ?>
+    <h2 style="margin-top:0">Correct the spare fields</h2>
+    <p class="muted small" id="fdSummary"></p>
+    <?php foreach (['ledger', 'bank'] as $sd): $lab = extra_labels($sd); if (!$lab) continue; ?>
+      <div class="fdside" data-side="<?= $sd ?>" hidden>
+        <?php foreach ($lab as $col => $label): ?>
+          <label><?= h($label) ?></label>
+          <input type="text" name="fv_<?= $col ?>" data-col="<?= $col ?>" maxlength="255"
+                 disabled placeholder="empty">
+        <?php endforeach; ?>
+      </div>
+    <?php endforeach; ?>
+    <div class="actions">
+      <button class="btn" type="submit">Save</button>
+      <button class="btn ghost" type="button" id="fdCancel">Cancel</button>
+      <span class="muted small" style="margin-left:auto">The date, description and amount are not
+        editable &mdash; they decide what matches what.</span>
+    </div>
+  </form>
+</dialog>
+<script>
+(function () {
+  var dlg = document.getElementById('fieldDlg');
+  if (!dlg || !dlg.showModal) return;
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('.fieldbtn');
+    if (btn) {
+      document.getElementById('fdSide').value = btn.dataset.side;
+      document.getElementById('fdId').value   = btn.dataset.id;
+      document.getElementById('fdSummary').textContent =
+        btn.dataset.date + '  ' + btn.dataset.desc + '  ' + btn.dataset.value;
+      var vals = {};
+      try { vals = JSON.parse(btn.dataset.vals || '{}'); } catch (err) {}
+      // only this side's boxes are shown, and only they are sent
+      dlg.querySelectorAll('.fdside').forEach(function (block) {
+        var mine = block.dataset.side === btn.dataset.side;
+        block.hidden = !mine;
+        block.querySelectorAll('input').forEach(function (i) {
+          i.disabled = !mine;
+          if (mine) i.value = vals[i.dataset.col] || '';
+        });
+      });
+      dlg.showModal();
+      var first = dlg.querySelector('.fdside:not([hidden]) input');
+      if (first) first.focus();
+      return;
+    }
+    if (e.target.closest('#fdCancel')) dlg.close();
   });
 })();
 </script>

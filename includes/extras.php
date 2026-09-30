@@ -50,6 +50,54 @@ function save_note_on($side, $id, $text)
     return [true, $text === '' ? 'Note removed.' : 'Note saved.'];
 }
 
+// Correct the spare fields of one transaction.
+//
+// SPARE FIELDS ONLY, on purpose. The date, the description and the amount decide
+// what matches what; changing an amount after a match would leave a match that
+// no longer balances, which is the one thing the tool must never allow. A spare
+// field is only ever data, so it is safe to put right.
+//
+// $vals is [column => value] and only the columns the file has named are taken.
+function save_fields_on($side, $id, array $vals)
+{
+    if (!extras_ready()) {
+        return [false, 'The database has not been updated for spare fields yet - run '
+            . 'sql/migration_006_notes_and_extras.sql.'];
+    }
+    $labels = extra_labels($side);              // the named spare fields on this side's file
+    if (!$labels) return [false, 'That file has no spare fields to edit.'];
+
+    $set = $args = [];
+    $changed = [];
+    $before = get_txn_on($side, $id);
+    if (!$before) return [false, 'That transaction is not on this side.'];
+
+    foreach ($labels as $col => $label) {
+        if (!array_key_exists($col, $vals)) continue;
+        $new = trim((string)$vals[$col]);
+        $new = $new === '' ? null : mb_substr($new, 0, 255);
+        if ((string)($before[$col] ?? '') === (string)$new) continue;
+        $set[]  = "{$col} = ?";
+        $args[] = $new;
+        $changed[] = $label;
+    }
+    if (!$set) return [true, 'No change to save.'];
+
+    $args[] = (int)$id;
+    $st = db()->prepare("UPDATE rec_txns SET " . implode(', ', $set) . " WHERE id = ? AND "
+                        . file_where($side, ''));
+    $st->execute($args);
+    return [true, 'Saved ' . implode(' and ', $changed) . '.'];
+}
+
+// One transaction, if it belongs to this side's file.
+function get_txn_on($side, $id)
+{
+    $st = db()->prepare("SELECT * FROM rec_txns WHERE id = ? AND " . file_where($side, ''));
+    $st->execute([(int)$id]);
+    return $st->fetch() ?: null;
+}
+
 // The months present in this reconciliation, newest first, for the month picker.
 // Derived rather than stored - a stored copy would only be another thing that
 // could disagree with the date it came from.

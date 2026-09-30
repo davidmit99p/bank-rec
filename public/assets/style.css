@@ -229,3 +229,8 @@ thead:has(.colfilters) th{position:static}
 tr.grouphead td{background:#f2f4f7;font-weight:600;font-size:.85rem;
   letter-spacing:.02em;padding-top:.6rem;padding-bottom:.35rem}
 tr.grouphead td .muted{font-weight:400;margin-left:.4rem}
+
+/* the spare-field correction button and dialog */
+.fieldbtn{font-size:.72rem;letter-spacing:-.02em}
+.fdside[hidden]{display:none}
+.fdside input[type=text]{width:100%}
