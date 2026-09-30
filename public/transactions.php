@@ -635,8 +635,8 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
   <div><label>To</label><input type="date" name="to" value="<?= h($to) ?>"></div>
   <div><label>Show</label>
     <select name="show" onchange="this.form.submit()">
-      <option value="open"<?= $show === 'open' ? ' selected' : '' ?>>Still to be matched</option>
-      <option value="matched"<?= $show === 'matched' ? ' selected' : '' ?>>Already matched</option>
+      <option value="open"<?= $show === 'open' ? ' selected' : '' ?>>Unmatched</option>
+      <option value="matched"<?= $show === 'matched' ? ' selected' : '' ?>>Matched</option>
       <option value="both"<?= $show === 'both' ? ' selected' : '' ?>>Both</option>
     </select></div>
   <div><label>Direction</label>

@@ -35,9 +35,9 @@ render_header();
 <p class="muted">Match your ledger against your bank statement using a growing library of rules.</p>
 
 <div class="stats">
-  <div class="stat"><span class="muted small"><?= h(side_label('ledger')) ?> items open</span><b><?= (int)$L['open'] ?></b>
+  <div class="stat"><span class="muted small"><?= h(side_label('ledger')) ?> items unmatched</span><b><?= (int)$L['open'] ?></b>
     <span class="num small <?= $L['open_value'] < 0 ? 'neg' : '' ?>"><?= money($L['open_value']) ?></span></div>
-  <div class="stat"><span class="muted small"><?= h(side_label('bank')) ?> items open</span><b><?= (int)$B['open'] ?></b>
+  <div class="stat"><span class="muted small"><?= h(side_label('bank')) ?> items unmatched</span><b><?= (int)$B['open'] ?></b>
     <span class="num small <?= $B['open_value'] < 0 ? 'neg' : '' ?>"><?= money($B['open_value']) ?></span></div>
   <div class="stat"><span class="muted small">Difference</span>
     <b class="<?= abs($L['open_value'] - $B['open_value']) < 0.005 ? 'pos' : 'neg' ?>">

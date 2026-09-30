@@ -351,8 +351,8 @@ $cellHtml = function ($cell, $href, $strong = false) use ($diffOf) {
            title="5035 &middot; 5035,5040 &middot; 5000..5999 &middot; !CASH"></div>
   <div><label>Show</label>
     <select name="show" onchange="this.form.submit()">
-      <option value="open"<?= $show === 'open' ? ' selected' : '' ?>>Still to be matched</option>
-      <option value="matched"<?= $show === 'matched' ? ' selected' : '' ?>>Already matched</option>
+      <option value="open"<?= $show === 'open' ? ' selected' : '' ?>>Unmatched</option>
+      <option value="matched"<?= $show === 'matched' ? ' selected' : '' ?>>Matched</option>
       <option value="both"<?= $show === 'both' ? ' selected' : '' ?>>Everything</option>
     </select></div>
   <div style="display:flex;flex-direction:column;gap:.2rem;padding-bottom:.2rem">

@@ -117,7 +117,7 @@ the two sides may be paired:
 Rules are tried in the order you give them, so put the tightest first. Once a
 transaction is claimed by one rule, later rules leave it alone.
 
-**3. Transactions.** Everything still to be matched, ledger on the left and
+**3. Transactions.** Everything unmatched, ledger on the left and
 bank on the right. Two ways to match:
 
 - **Process rules** applies every active rule and produces suggestions.

@@ -182,7 +182,7 @@ else on the site then shows only that one.</p>
 <div class="panel">
 <table>
   <thead><tr><th></th><th>Name</th><th>Sides are called</th>
-    <th class="num">Open left</th><th class="num">Open right</th>
+    <th class="num">Unmatched left</th><th class="num">Unmatched right</th>
     <th class="num">Difference</th><th class="num">Runs</th><th></th></tr></thead>
   <tbody>
   <?php

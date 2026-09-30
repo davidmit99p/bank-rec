@@ -126,7 +126,7 @@ render_header('Summary');
 <?php
   $lines = [
     ['Total transaction value', 'all_n',  'all_total',  'Everything loaded on that side'],
-    ['Items not matched',       'open_n', 'open_total', 'Still to be matched in this reconciliation'],
+    ['Unmatched',               'open_n', 'open_total', 'Not yet matched in this reconciliation'],
     ['Items matched',           'done_n', 'done_total', 'The first line less the second'],
   ];
 ?>
@@ -169,8 +169,8 @@ render_header('Summary');
 <form method="get" class="panel" style="display:flex;gap:.75rem;align-items:end;flex-wrap:wrap">
   <div><label>Show</label>
     <select name="show" onchange="this.form.submit()">
-      <option value="open"<?= $show === 'open' ? ' selected' : '' ?>>Still to be matched</option>
-      <option value="matched"<?= $show === 'matched' ? ' selected' : '' ?>>Already matched</option>
+      <option value="open"<?= $show === 'open' ? ' selected' : '' ?>>Unmatched</option>
+      <option value="matched"<?= $show === 'matched' ? ' selected' : '' ?>>Matched</option>
       <option value="both"<?= $show === 'both' ? ' selected' : '' ?>>Everything</option>
     </select></div>
   <div><label>Direction</label>
@@ -231,7 +231,7 @@ render_header('Summary');
 </table>
 </div>
 <p class="small muted">Months where the two sides do not agree are shaded. With
-  &ldquo;still to be matched&rdquo; showing, a month that comes to nothing on both sides is fully
+  &ldquo;unmatched&rdquo; showing, a month that comes to nothing on both sides is fully
   reconciled.</p>
 <?php endif; ?>
 <?php render_footer(); ?>

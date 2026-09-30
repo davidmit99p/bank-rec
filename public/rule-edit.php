@@ -232,7 +232,7 @@ form to say which <b>bank</b> lines they should be paired with. Leave a box on &
   ?>
   <div class="panel" style="background:<?= $shade[0] ?>;border-color:<?= $shade[1] ?>">
     <h2 style="margin-top:0">What this rule finds</h2>
-    <p style="margin:.2rem 0">Of the items still to be matched in
+    <p style="margin:.2rem 0">Of the unmatched items in
       <b><?= h(current_rec()['name'] ?? 'this reconciliation') ?></b>, the conditions fit:</p>
     <?php if ($test['held']): ?>
       <p class="small muted" style="margin:.2rem 0"><?= number_format($test['held']) ?> lines are left out of

@@ -93,8 +93,8 @@ render_header('Files');
 
 <div class="panel">
 <table>
-  <thead><tr><th>Name</th><th>Spare fields</th><th class="num">Rows</th><th class="num">Open</th>
-    <th class="num">Open value</th><th>Used by</th><th></th></tr></thead>
+  <thead><tr><th>Name</th><th>Spare fields</th><th class="num">Rows</th><th class="num">Unmatched</th>
+    <th class="num">Unmatched value</th><th>Used by</th><th></th></tr></thead>
   <tbody>
   <?php foreach ($files as $file):
       $s  = file_stats($file['id']);

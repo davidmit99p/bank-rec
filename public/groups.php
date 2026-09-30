@@ -76,7 +76,7 @@ render_header('Group notes');
     <p style="margin:.2rem 0">
       <span class="balance <?= abs($diff) < 0.005 ? 'ok' : 'off' ?>">Difference <?= money(abs($diff) < 0.005 ? 0 : $diff) ?></span>
       <?php if (!$settled): ?>
-        <span class="muted small"><?= (int)$g['still_open'] ?> of them still to be matched</span>
+        <span class="muted small"><?= (int)$g['still_open'] ?> of them unmatched</span>
       <?php else: ?>
         <span class="muted small">everything in it has been matched</span>
       <?php endif; ?>

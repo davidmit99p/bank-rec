@@ -101,7 +101,7 @@ render_header('Overview');
   <table>
     <thead><tr>
       <th>Reconciliation</th><th>Compares</th>
-      <th class="num">Open left</th><th class="num">Open right</th>
+      <th class="num">Unmatched left</th><th class="num">Unmatched right</th>
       <th class="num">Difference</th><th>Last finalised</th><th></th>
     </tr></thead>
     <tbody>
