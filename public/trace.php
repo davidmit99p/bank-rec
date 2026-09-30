@@ -42,7 +42,8 @@ function recs_for_file($fileId)
 // What this transaction was matched to in one reconciliation, if anything.
 function counterparts($txnId, $recId)
 {
-    $st = db()->prepare("SELECT m.group_id, m.rule_ref, m.matched_at, g.group_no, g.rule_name, r.run_ref
+    $st = db()->prepare("SELECT m.group_id, m.rule_ref, m.matched_at, g.group_no, g.rule_name,
+                                r.run_ref, r.id AS run_id
                          FROM rec_matched m
                          JOIN rec_match_groups g ON g.id = m.group_id
                          JOIN rec_runs r ON r.id = m.run_id
@@ -194,7 +195,8 @@ render_header('Trace');
         <p style="margin:0"><b>Matched in <?= h($rec['name']) ?></b>
           <span class="tag <?= is_numeric($cp['rule_ref']) ? '' : 'manual' ?>"><?php
             echo is_numeric($cp['rule_ref']) ? 'rule ' . h($cp['rule_ref']) : h($cp['rule_ref']); ?></span>
-          <span class="muted small"><?= h($cp['run_ref']) ?> &middot;
+          <span class="muted small"><a href="runs.php?focus=<?= (int)$cp['run_id'] ?>#run<?= (int)$cp['run_id'] ?>"
+             title="See this run on the Runs screen"><?= h($cp['run_ref']) ?></a> &middot;
             <?= h(substr((string)$cp['matched_at'], 0, 10)) ?></span></p>
 
         <?php if ($collapsed): ?>

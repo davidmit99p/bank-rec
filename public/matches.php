@@ -72,7 +72,7 @@ $total = (int)$st->fetchColumn();
 $pages = max(1, (int)ceil($total / $per));
 $page  = min($page, $pages);
 
-$st = $pdo->prepare("SELECT g.*, r.run_ref, r.finalised_at $sql
+$st = $pdo->prepare("SELECT g.*, r.run_ref, r.id AS run_id, r.finalised_at $sql
                      ORDER BY r.finalised_at DESC, g.group_no
                      LIMIT {$per} OFFSET " . (($page - 1) * $per));
 $st->execute($args);
@@ -154,7 +154,9 @@ or undo a whole match.</p>
       <span class="tag <?= is_numeric($g['rule_ref']) ? '' : 'manual' ?>">
         <?= is_numeric($g['rule_ref']) ? 'Rule ' . h($g['rule_ref']) : h(ucfirst($g['rule_ref'])) ?></span>
       <b>Match <?= (int)$g['group_no'] ?></b>
-      <span class="muted small"><?= h($g['rule_name']) ?> &middot; <?= h($g['run_ref']) ?>
+      <span class="muted small"><?= h($g['rule_name']) ?> &middot;
+        <a href="runs.php?focus=<?= (int)$g['run_id'] ?>#run<?= (int)$g['run_id'] ?>"
+           title="See this run on the Runs screen"><?= h($g['run_ref']) ?></a>
         &middot; <?= h(substr((string)$g['finalised_at'], 0, 16)) ?></span>
       <span class="balance ok" style="margin-left:auto">
         <?= $isContra ? 'cancels out to 0.00' : money($g['ledger_total']) ?></span>

@@ -47,8 +47,8 @@ rule number that matched it, so you can always see why something was matched.</p
     <th class="num">Matches</th><th class="num">Ledger</th><th class="num">Bank</th>
     <th class="num">Value</th><th>Note</th><th></th></tr></thead>
   <tbody>
-  <?php foreach ($runs as $r): ?>
-    <tr>
+  <?php $focus = (int)($_GET['focus'] ?? 0); foreach ($runs as $r): ?>
+    <tr id="run<?= (int)$r['id'] ?>"<?= (int)$r['id'] === $focus ? ' class="focusrun"' : '' ?>>
       <td><a href="review.php?run=<?= (int)$r['id'] ?>"><?= h($r['run_ref']) ?></a></td>
       <td><span class="tag"><?= h($r['status']) ?></span></td>
       <td class="small"><?= h($r['created_at']) ?>

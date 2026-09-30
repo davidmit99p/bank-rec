@@ -437,8 +437,9 @@ function list_items($side, $q, $from, $to, $show = 'open', $sortKey = 'date', $d
     // that describe "matched here" come back empty rather than the query failing.
     $mj = matched_join('t');
     $cols = $mj
-        ? "m.matched_at AS matched_here, m.rule_ref AS matched_rule, m.group_id AS group_id, r.run_ref"
-        : "NULL AS matched_here, NULL AS matched_rule, NULL AS group_id, NULL AS run_ref";
+        ? "m.matched_at AS matched_here, m.rule_ref AS matched_rule, m.group_id AS group_id,
+             r.run_ref, r.id AS run_id"
+        : "NULL AS matched_here, NULL AS matched_rule, NULL AS group_id, NULL AS run_ref, NULL AS run_id";
 
     $sql = "SELECT t.*, {$cols},
                    (SELECT p.value FROM rec_txns p WHERE p.id = t.parent_id) AS parent_value

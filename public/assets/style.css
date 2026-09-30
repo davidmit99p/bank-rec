@@ -240,3 +240,6 @@ tr.grouphead td .muted{font-weight:400;margin-left:.4rem}
 
 /* the star beside a date or description that has been put right */
 .amended{color:var(--warn);font-weight:700;margin-left:.15rem;cursor:help}
+
+/* the run you arrived at by clicking its reference elsewhere */
+tr.focusrun>td,tr.focusrun>th{background:#fdf6e6;box-shadow:inset 0 0 0 1px #e8d9a8}

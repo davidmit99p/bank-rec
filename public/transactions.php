@@ -911,7 +911,9 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
                 <?php if ($isMatched): ?>
                   <span class="tag <?= is_numeric($t['matched_rule']) ? '' : 'manual' ?>"><?php
                     echo is_numeric($t['matched_rule']) ? 'rule ' . h($t['matched_rule']) : h($t['matched_rule']); ?></span>
-                  <span class="tag"><?= h($t['run_ref']) ?></span>
+                  <a class="tag" style="text-decoration:none"
+                     href="runs.php?focus=<?= (int)$t['run_id'] ?>#run<?= (int)$t['run_id'] ?>"
+                     title="See this run on the Runs screen"><?= h($t['run_ref']) ?></a>
                   <a class="tag" href="trace.php?txn=<?= (int)$t['id'] ?>"
                      style="text-decoration:none">trace</a>
                 <?php endif; ?></span></td>
