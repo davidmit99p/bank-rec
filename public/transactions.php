@@ -724,6 +724,7 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
   foreach ($panels as [$side, $title, $rows, $openN, $tot, $tag, $pfx, $sortKey, $dir, $formId, $field, $val,
                        $totalN, $page, $pages, $pageKey]):
     $tickFirst = ($side === 'bank');   // ledger ticks sit on the inside edge
+    $coreFirst = $tickFirst;           // and the core three follow them, against the middle
 ?>
     <div>
       <div class="side-head"><h2><?= $title ?></h2>
@@ -784,12 +785,20 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
                 . '</th>';
               if ($tickFirst) echo $allBox;
             ?>
+            <?php
+              // Date, description and value are what you match on, so they sit
+              // against the middle of the screen: last on the left-hand side,
+              // first on the right. The spare fields go to the outside.
+              $extraHeads = '';
+              foreach (extra_labels($side) as $key => $label) {
+                  $extraHeads .= sort_head($label, $pfx, $key, $sortKey, $dir);
+              }
+              if (!$coreFirst) echo $extraHeads;
+            ?>
             <?= sort_head('Date', $pfx, 'date', $sortKey, $dir) ?>
             <?= sort_head('Description', $pfx, 'description', $sortKey, $dir) ?>
-            <?php foreach (extra_labels($side) as $key => $label): ?>
-              <?= sort_head($label, $pfx, $key, $sortKey, $dir) ?>
-            <?php endforeach; ?>
             <?= value_head($pfx, $sortKey, $dir) ?>
+            <?php if ($coreFirst) echo $extraHeads; ?>
             <?php if (!$tickFirst) echo $allBox; ?>
           </tr>
           <tr class="colfilters">
@@ -804,11 +813,14 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
                        . ($col === 'value' ? '  100 either sign  =-100  >100  <100  !100 not either sign  !=0 not exactly' : '') . '"'
                        . '></th>';
               };
+              $extraBoxes = '';
+              foreach (extra_labels($side) as $key => $label) $extraBoxes .= $fbox($key, 'filter', $label);
               if ($tickFirst) echo '<th></th>';
+              if (!$coreFirst) echo $extraBoxes;
               echo $fbox('date', 'filter', ':date');
               echo $fbox('description', 'filter', ':description');
-              foreach (extra_labels($side) as $key => $label) echo $fbox($key, 'filter', $label);
               echo $fbox('value', '100, >100', ':value');
+              if ($coreFirst) echo $extraBoxes;
               if (!$tickFirst) echo '<th></th>';
             ?>
           </tr></thead>
@@ -856,8 +868,16 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
                     . ' data-desc="' . h($t['description']) . '">&#9986;</button>';
               }
           ?>
+            <?php
+              $extraTds = '';
+              foreach (array_keys(extra_labels($side)) as $key) {
+                  $v = (string)($t[$key] ?? '');
+                  $extraTds .= '<td class="small desc" title="' . h($v) . '">' . h($v) . '</td>';
+              }
+            ?>
             <tr<?= $isMatched ? ' style="opacity:.6"' : '' ?>>
               <?php if ($tickFirst) echo '<td class="tickcell">' . $box . $splitBtn . $noteBtn . $fieldBtn . '</td>'; ?>
+              <?php if (!$coreFirst) echo $extraTds; ?>
               <td class="small"><?= h($t['txn_date']) ?></td>
               <?php // the description shortens with an ellipsis; the tags sit
                     // outside it, so a long narrative never hides them ?>
@@ -877,10 +897,8 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
                   <a class="tag" href="trace.php?txn=<?= (int)$t['id'] ?>"
                      style="text-decoration:none">trace</a>
                 <?php endif; ?></span></td>
-              <?php foreach (array_keys(extra_labels($side)) as $key): ?>
-                <td class="small desc" title="<?= h((string)($t[$key] ?? '')) ?>"><?= h((string)($t[$key] ?? '')) ?></td>
-              <?php endforeach; ?>
               <td class="num <?= $t['value'] < 0 ? 'neg' : '' ?>"><?= money($t['value']) ?></td>
+              <?php if ($coreFirst) echo $extraTds; ?>
               <?php if (!$tickFirst) echo '<td class="tickcell">' . $fieldBtn . $noteBtn . $splitBtn . $box . '</td>'; ?>
             </tr>
           <?php endforeach; ?>
