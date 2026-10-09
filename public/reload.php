@@ -37,6 +37,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             header('Location: reload.php?file=' . $fileId);
             exit;
         }
+        if (($_POST['action'] ?? '') === 'free') {
+            // unpick what is holding these records, then apply them
+            $ids = array_filter(array_map('intval', explode(',', (string)($_POST['ids'] ?? ''))));
+            [$n, $msg] = unmatch_and_apply($fileId, $ids);
+            flash($msg);
+            header('Location: reload.php?file=' . $fileId);
+            exit;
+        }
         if (($_POST['action'] ?? '') === 'discard') {
             clear_stage($fileId);
             if (function_exists('log_event')) log_event('discarded a reload', get_file($fileId)['name']);
@@ -104,11 +112,20 @@ render_header('Reload');
       <span class="balance <?= $blocked ? 'off' : '' ?>"><?= number_format($blocked) ?> held back</span>
     </div>
     <?php if ($blocked): ?>
-      <p class="small" style="color:var(--bad);margin-bottom:0">The ones held back have a changed amount
-        on a line that is already matched. Applying them would leave a match that no longer balances, so
-        they cannot be ticked. Unmatch those lines first &mdash; from the
-        <a href="matches.php">Matches</a> screen, a whole match at a time &mdash; then load the file
-        again.</p>
+      <p class="small" style="color:var(--bad);margin-bottom:.4rem">The ones held back have a changed
+        amount on a line that is already matched. Applying one means undoing its match first &mdash; a
+        whole match at a time, so nothing is left matched and out of balance. Each row says what that
+        would cost before you press it.</p>
+      <form method="post" id="freeAllForm" style="margin:0">
+        <input type="hidden" name="action" value="free">
+        <input type="hidden" name="file_id" value="<?= $fileId ?>">
+        <input type="hidden" name="ids" value="<?= h(implode(',', array_map(
+            fn($r) => $r['id'], array_filter($rows, fn($r) => $r['verdict'] === 'blocked')))) ?>">
+        <button class="btn" type="submit"
+          style="background:var(--bad);border-color:var(--bad)"
+          onclick="return confirm('Undo the matches holding all <?= $blocked ?> of these records, then apply them?')">
+          Unmatch and apply all <?= $blocked ?> held back</button>
+      </form>
     <?php endif; ?>
   </div>
 
@@ -162,8 +179,16 @@ render_header('Reload');
               };
           ?>
             <tr<?= $can ? '' : ' style="opacity:.75"' ?>>
-              <td class="center"><input type="checkbox" class="stagetick" value="<?= (int)$s['id'] ?>"
-                <?= $can ? 'checked' : 'disabled title="Already matched - unmatch it first"' ?>></td>
+              <td class="center"><?php if ($can): ?>
+                <input type="checkbox" class="stagetick" value="<?= (int)$s['id'] ?>" checked>
+              <?php else: $words = unmatch_cost_words(matches_holding((int)$s['txn_id'])); ?>
+                <button class="btn ghost small" type="submit" form="freeOne<?= (int)$s['id'] ?>"
+                  title="<?= h($words) ?>"
+                  onclick="return confirm(<?= h(json_encode($words . "
+
+Go ahead?")) ?>)"
+                  style="color:var(--bad);border-color:var(--bad);white-space:nowrap">Unmatch<br>and apply</button>
+              <?php endif; ?></td>
               <td class="small">
                 <span class="tag <?= $s['verdict'] === 'new' ? 'manual' : '' ?>"><?= h($s['verdict'] === 'blocked' ? 'held back' : $s['verdict']) ?></span>
                 <?php if ($changes): ?><br><span class="muted small"><?php
@@ -188,6 +213,14 @@ render_header('Reload');
         <b>*</b> on the transactions screen.</p>
     </div>
   </form>
+
+  <?php foreach ($rows as $s): if ($s['verdict'] !== 'blocked') continue; ?>
+    <form method="post" id="freeOne<?= (int)$s['id'] ?>">
+      <input type="hidden" name="action" value="free">
+      <input type="hidden" name="file_id" value="<?= $fileId ?>">
+      <input type="hidden" name="ids" value="<?= (int)$s['id'] ?>">
+    </form>
+  <?php endforeach; ?>
 
   <form method="post" id="discardForm">
     <input type="hidden" name="action" value="discard">

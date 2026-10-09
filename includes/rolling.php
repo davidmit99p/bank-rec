@@ -292,6 +292,84 @@ function stage_changes(array $s)
     return $out;
 }
 
+// --- what a held-back record would cost -----------------------------------------
+
+// The matches a transaction is in, across every reconciliation, with how many
+// lines each one holds. Shown before anything is unpicked, because a shared file
+// means the match being undone may be in a reconciliation you are not looking at.
+function matches_holding($txnId)
+{
+    if (!rolling_ready()) return [];
+    $st = db()->prepare("SELECT m.group_id, m.rec_id, g.group_no, g.rule_ref, g.rule_name,
+                                r.run_ref, c.name AS rec_name,
+                                (SELECT COUNT(*) FROM rec_match_lines l WHERE l.group_id = m.group_id) lines_n
+                         FROM rec_matched m
+                         JOIN rec_match_groups g ON g.id = m.group_id
+                         JOIN rec_runs r ON r.id = m.run_id
+                         LEFT JOIN rec_recs c ON c.id = m.rec_id
+                         WHERE m.txn_id = ?
+                         ORDER BY c.name, g.group_no");
+    $st->execute([(int)$txnId]);
+    return $st->fetchAll();
+}
+
+// That, in one sentence, for the warning the user reads before pressing.
+function unmatch_cost_words(array $holds)
+{
+    if (!$holds) return 'It is not matched anywhere, so nothing would be unpicked.';
+    $bits = [];
+    foreach ($holds as $h) {
+        $bits[] = 'match ' . (int)$h['group_no'] . ' in ' . ($h['rec_name'] ?? 'a reconciliation')
+                . ' (' . (int)$h['lines_n'] . ' lines, ' . $h['run_ref'] . ')';
+    }
+    return 'Undoing ' . implode(' and ', $bits)
+        . '. Every line in ' . (count($holds) === 1 ? 'that match' : 'those matches')
+        . ' becomes unmatched again, and the rules can pick them up on the next run.';
+}
+
+// Unpick whatever is holding these records, then apply them.
+//
+// A whole match at a time, never half of one, so nothing is ever left matched
+// and out of balance. The amendment is applied afterwards by the ordinary path.
+function unmatch_and_apply($fileId, array $stageIds)
+{
+    if (!rolling_ready()) return [0, 'The database has not been updated for rolling files yet.'];
+    $stageIds = array_values(array_filter(array_map('intval', $stageIds)));
+    if (!$stageIds) return [0, 'Nothing was ticked.'];
+
+    $pdo = db();
+    $in  = implode(',', array_fill(0, count($stageIds), '?'));
+    $st  = $pdo->prepare("SELECT * FROM rec_stage
+                          WHERE file_id = ? AND verdict = 'blocked' AND id IN ($in)");
+    $st->execute(array_merge([(int)$fileId], $stageIds));
+    $rows = $st->fetchAll();
+    if (!$rows) return [0, 'Nothing held back was ticked.'];
+
+    $undone = 0;
+    $freed  = 0;
+    $ready  = [];
+    foreach ($rows as $s) {
+        foreach (matches_holding((int)$s['txn_id']) as $h) {
+            $freed += unmatch_whole_group((int)$h['group_id']);
+            $undone++;
+        }
+        // it is no longer held back: it is an ordinary amendment
+        $pdo->prepare("UPDATE rec_stage SET verdict = 'amended', note = NULL WHERE id = ?")
+            ->execute([(int)$s['id']]);
+        $ready[] = (int)$s['id'];
+    }
+
+    [$n, $msg] = apply_stage($fileId, $ready);
+    $words = $undone
+        ? $undone . ' match' . ($undone === 1 ? '' : 'es') . ' undone, freeing '
+          . $freed . ' lines. '
+        : '';
+    if (function_exists('log_event')) {
+        log_event('unmatched for a reload', get_file($fileId)['name'] . ': ' . $words . $msg);
+    }
+    return [$n, $words . $msg];
+}
+
 // --- letting them through --------------------------------------------------------
 
 // Apply the staged records whose ids are given. Blocked ones are refused here as

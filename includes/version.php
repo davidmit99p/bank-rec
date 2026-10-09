@@ -3,7 +3,7 @@
 //
 // Changed by hand whenever something is pushed, so "has my last change landed?"
 // can be answered by looking at the page rather than by asking Plesk.
-const APP_VERSION = '2026-10-09';
+const APP_VERSION = '2026-10-10';
 
 // When this file arrived on the server, which is when the last deployment
 // happened - it is rewritten on every push. Read from the file itself rather
