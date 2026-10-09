@@ -32,17 +32,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $ex = [];
             foreach (spare_keys() as $k) $ex[] = trim((string)($_POST[$k] ?? '')) ?: null;
             $keys = spare_keys();
+            // is this file loaded again and again, and what identifies a record in it
+            $rolling = isset($_POST['rolling']) ? 1 : 0;
+            $keyCols = [];
+            if (rolling_ready()) {
+                foreach ((array)($_POST['keyf'] ?? []) as $c) {
+                    if (preg_match('/^(txn_date|description|value|extra[1-6])$/', (string)$c)) $keyCols[] = $c;
+                }
+                if ($rolling && !$keyCols) {
+                    throw new RuntimeException('A file that is loaded again and again needs at least one '
+                        . 'field that identifies a record - a reference, usually.');
+                }
+            }
 
             if ($id) {
                 $set = implode(', ', array_map(fn($k) => "$k=?", $keys));
                 $pdo->prepare("UPDATE rec_files SET name=?, notes=?, active=?, $set WHERE id=?")
                     ->execute(array_merge([$name, $notes, $act], $ex, [$id]));
+                if (rolling_ready()) {
+                    $pdo->prepare("UPDATE rec_files SET rolling=?, key_fields=? WHERE id=?")
+                        ->execute([$rolling, $keyCols ? implode(',', $keyCols) : null, $id]);
+                    // give what is already there its fingerprint and key, so the
+                    // next load has something to compare against
+                    if ($rolling) fingerprint_file($id);
+                }
                 flash('Saved.');
             } else {
                 $qs = implode(',', array_fill(0, count($keys), '?'));
                 $pdo->prepare("INSERT INTO rec_files (name, notes, active, " . implode(', ', $keys) . ")
                                VALUES (?,?,?,$qs)")
                     ->execute(array_merge([$name, $notes, $act], $ex));
+                $newId = (int)$pdo->lastInsertId();
+                if (rolling_ready()) {
+                    $pdo->prepare("UPDATE rec_files SET rolling=?, key_fields=? WHERE id=?")
+                        ->execute([$rolling, $keyCols ? implode(',', $keyCols) : null, $newId]);
+                }
                 log_event('created a file', $name);
                 flash('Created ' . $name . '. You can import into it now.');
             }
@@ -158,6 +182,27 @@ render_header('Files');
     <?php endforeach; ?>
   </div>
   <?php endforeach; ?>
+
+  <?php if (rolling_ready()): $kf = $f['id'] ? file_key_fields($f['id']) : []; ?>
+    <label style="margin-top:.8rem">
+      <input type="checkbox" name="rolling" value="1" style="width:auto"
+        <?= !empty($f['rolling']) ? 'checked' : '' ?>> This file is loaded again and again (rolling)</label>
+    <p class="small muted" style="margin-top:.2rem">Tick this when the same extract is reloaded as more
+      is posted to it, and a record loaded before can come back changed. A load of a rolling file is
+      compared with what is already here and you decide what goes through, instead of everything being
+      added again.</p>
+    <label>Which fields identify a record</label>
+    <p class="small muted" style="margin-top:0">The source system's own record number is the best
+      choice, because it never changes. A reference someone can retype is a poor one. Needed only for
+      a rolling file.</p>
+    <div class="row">
+      <?php foreach (rolling_key_choices((int)$f['id']) as $col => $label): ?>
+        <label style="margin:0;color:var(--ink);white-space:nowrap">
+          <input type="checkbox" name="keyf[]" value="<?= h($col) ?>" style="width:auto"
+            <?= in_array($col, $kf, true) ? 'checked' : '' ?>> <?= h($label) ?></label>
+      <?php endforeach; ?>
+    </div>
+  <?php endif; ?>
 
   <label>Notes</label>
   <textarea name="notes" placeholder="Where this comes from, which account it is, anything worth remembering"><?= h($f['notes']) ?></textarea>

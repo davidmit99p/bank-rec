@@ -898,6 +898,9 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
                     // outside it, so a long narrative never hides them ?>
               <td class="desccell">
                 <span class="desc" title="<?= h($t['description']) ?>"><?= h($t['description']) ?></span><?= amend_ready() ? amend_mark($t, 'desc') : '' ?><span class="rowtags">
+                <?php if (rolling_ready() && !empty($t['restated_at'])): ?>
+                  <span class="tag" title="The amount was <?= h(money($t['prev_value'] ?? 0)) ?> when first loaded&#10;Restated by a reload on <?= h(substr((string)$t['restated_at'], 0, 10)) ?>">restated</span>
+                <?php endif; ?>
                 <?php if (added_by_hand($t)): ?>
                   <span class="tag manual" title="<?= h((string)$t['source_file']) ?>">added</span>
                 <?php endif; ?>

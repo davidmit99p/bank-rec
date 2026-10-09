@@ -2,6 +2,7 @@
 // Step 1: load the ledger file into one table and the bank file into the other.
 require_once __DIR__ . '/../includes/layout.php';
 require_once __DIR__ . '/../includes/importer.php';
+require_once __DIR__ . '/../includes/rolling.php';
 
 $storage = __DIR__ . '/../storage/uploads';
 if (!is_dir($storage)) @mkdir($storage, 0775, true);
@@ -133,6 +134,22 @@ try {
         $start = max(1, (int)($_POST['data_start'] ?? 1)) - 1;
         [$txns, $skipped] = build_transactions($rows, $map, $start);
         if (!$txns) throw new RuntimeException('No usable transactions were found. Check the column choices and the row the transactions start on.');
+
+        // a rolling file is compared with what is already there rather than
+        // simply added to it
+        if (rolling_ready() && file_is_rolling($fileId)) {
+            [$ok, $res] = stage_load($fileId, $txns, $name);
+            @unlink($path);
+            if (!$ok) throw new RuntimeException($res);
+            log_event('staged a reload', $name . ' -> ' . $file['name'] . ', '
+                . count($txns) . ' records read');
+            flash('Read ' . count($txns) . ' records from ' . $name . ': '
+                . number_format($res['same']) . ' unchanged, ' . number_format($res['new']) . ' new, '
+                . number_format($res['amended']) . ' amended, ' . number_format($res['blocked'])
+                . ' held back. Nothing has been applied yet.');
+            header('Location: reload.php?file=' . $fileId);
+            exit;
+        }
 
         $n = insert_transactions($fileId, $txns, $name);
         @unlink($path);
