@@ -35,9 +35,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // is this file loaded again and again, and what identifies a record in it
             $rolling = isset($_POST['rolling']) ? 1 : 0;
             $keyCols = [];
+            $ignCols = [];
             if (rolling_ready()) {
                 foreach ((array)($_POST['keyf'] ?? []) as $c) {
                     if (preg_match('/^(txn_date|description|value|extra[1-6])$/', (string)$c)) $keyCols[] = $c;
+                }
+                foreach ((array)($_POST['ignoref'] ?? []) as $c) {
+                    if (preg_match('/^(txn_date|description|value|extra[1-6])$/', (string)$c)
+                        && !in_array($c, $keyCols, true)) $ignCols[] = $c;
                 }
                 if ($rolling && !$keyCols) {
                     throw new RuntimeException('A file that is loaded again and again needs at least one '
@@ -52,6 +57,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (rolling_ready()) {
                     $pdo->prepare("UPDATE rec_files SET rolling=?, key_fields=? WHERE id=?")
                         ->execute([$rolling, $keyCols ? implode(',', $keyCols) : null, $id]);
+                    if (rolling_tune_ready()) {
+                        $pdo->prepare("UPDATE rec_files SET ignore_fields=? WHERE id=?")
+                            ->execute([$ignCols ? implode(',', $ignCols) : null, $id]);
+                    }
                     // give what is already there its fingerprint and key, so the
                     // next load has something to compare against
                     if ($rolling) fingerprint_file($id);
@@ -66,6 +75,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (rolling_ready()) {
                     $pdo->prepare("UPDATE rec_files SET rolling=?, key_fields=? WHERE id=?")
                         ->execute([$rolling, $keyCols ? implode(',', $keyCols) : null, $newId]);
+                    if (rolling_tune_ready()) {
+                        $pdo->prepare("UPDATE rec_files SET ignore_fields=? WHERE id=?")
+                            ->execute([$ignCols ? implode(',', $ignCols) : null, $newId]);
+                    }
                 }
                 log_event('created a file', $name);
                 flash('Created ' . $name . '. You can import into it now.');
@@ -194,7 +207,8 @@ render_header('Files');
     <label>Which fields identify a record</label>
     <p class="small muted" style="margin-top:0">The source system's own record number is the best
       choice, because it never changes. A reference someone can retype is a poor one. Needed only for
-      a rolling file.</p>
+      a rolling file. This is a starting point: when you load the file you can change it there, see
+      what each choice would do, and save the better one back here.</p>
     <div class="row">
       <?php foreach (rolling_key_choices((int)$f['id']) as $col => $label): ?>
         <label style="margin:0;color:var(--ink);white-space:nowrap">
@@ -202,6 +216,18 @@ render_header('Files');
             <?= in_array($col, $kf, true) ? 'checked' : '' ?>> <?= h($label) ?></label>
       <?php endforeach; ?>
     </div>
+    <?php if (rolling_tune_ready()): $ig = $f['id'] ? file_ignore_fields($f['id']) : []; ?>
+      <label style="margin-top:.7rem">Fields to ignore when comparing</label>
+      <p class="small muted" style="margin-top:0">A field named here is left out of the comparison, so
+        a change in it never raises an amendment.</p>
+      <div class="row">
+        <?php foreach (rolling_key_choices((int)$f['id']) as $col => $label): ?>
+          <label style="margin:0;color:var(--ink);white-space:nowrap">
+            <input type="checkbox" name="ignoref[]" value="<?= h($col) ?>" style="width:auto"
+              <?= in_array($col, $ig, true) ? 'checked' : '' ?>> <?= h($label) ?></label>
+        <?php endforeach; ?>
+      </div>
+    <?php endif; ?>
   <?php endif; ?>
 
   <label>Notes</label>
