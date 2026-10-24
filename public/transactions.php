@@ -581,10 +581,27 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
                 $on = $sel['by'] === $by;
             ?>
               <div class="mvals" data-by="<?= h($by) ?>" data-kind="<?= h($kind) ?>"<?= $on ? '' : ' hidden' ?>>
-                <?php foreach ($opts as $v => $label): ?>
-                  <label><input type="checkbox" name="<?= $p ?>m[]" value="<?= h($v) ?>" style="width:auto"
-                    <?= $on && in_array((string)$v, $sel['vals'], true) ? 'checked' : '' ?><?= $on ? '' : ' disabled' ?>> <?= h($label) ?></label>
-                <?php endforeach; ?>
+                <?php
+                  // one tick per value, in a block per year where there is more
+                  // than one year to choose from
+                  $tick = function ($v, $label) use ($p, $on, $sel) { ?>
+                    <label><input type="checkbox" name="<?= $p ?>m[]" value="<?= h($v) ?>" style="width:auto"
+                      <?= $on && in_array((string)$v, $sel['vals'], true) ? 'checked' : '' ?><?= $on ? '' : ' disabled' ?>> <?= h($label) ?></label>
+                  <?php };
+                  foreach (group_by_year($opts) as $yr => $group):
+                    if ($yr === ''):
+                      foreach ($group as $v => $label) $tick($v, $label);
+                    else:
+                      $yrOn = $on && array_intersect(array_map('strval', array_keys($group)), $sel['vals']);
+                ?>
+                  <details class="myear"<?= $yrOn ? ' open' : '' ?>>
+                    <summary><label class="yhead" onclick="event.stopPropagation()"
+                        title="Take the whole of <?= h($yr) ?>"><input type="checkbox" class="ytick"
+                        style="width:auto"> <?= h($yr) ?></label>
+                      <span class="muted small"><?= count($group) ?></span></summary>
+                    <div class="ymons"><?php foreach ($group as $v => $label) $tick($v, $label); ?></div>
+                  </details>
+                <?php endif; endforeach; ?>
                 <?php if (!$opts): ?><span class="muted small">Nothing to choose from.</span><?php endif; ?>
               </div>
             <?php endforeach; ?>
@@ -597,7 +614,8 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
         <div class="monthbtns">
           <button class="btn small" type="submit">Apply</button>
           <button class="btn ghost small" type="button"
-            onclick="this.closest('.monthlist').querySelectorAll('.mvals input').forEach(function(c){c.checked=false})">Untick all</button>
+            onclick="this.closest('.monthlist').querySelectorAll('.mvals input').forEach(function(c){c.checked=false});
+                     if (window.mYears) window.mYears();">Untick all</button>
         </div>
       </div>
     </details></div>
@@ -615,19 +633,52 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
           v.hidden = !on;
           v.querySelectorAll('input').forEach(function (c) { c.disabled = !on; if (!on) c.checked = false; });
         });
+        if (window.mYears) window.mYears();
       });
     });
+    // a year's tick takes the whole year, and follows its months back
+    function months(details) {
+      return Array.prototype.slice.call(details.querySelectorAll('.ymons input'));
+    }
+    function refreshYears() {
+      list.querySelectorAll('details.myear').forEach(function (d) {
+        var ms = months(d), on = ms.filter(function (c) { return c.checked; });
+        var y = d.querySelector('.ytick');
+        y.checked = ms.length > 0 && on.length === ms.length;
+        y.indeterminate = on.length > 0 && on.length < ms.length;
+      });
+    }
+    window.mYears = refreshYears;
+    list.addEventListener('change', function (e) {
+      if (!e.target.classList.contains('ytick')) return;
+      // what was wanted, read ONCE: each month below tells the other side, and
+      // that redraws this very tick, so reading it again mid-way would lie
+      var want = e.target.checked;
+      months(e.target.closest('details.myear')).forEach(function (c) {
+        if (c.checked === want) return;
+        c.checked = want;
+        c.dispatchEvent(new Event('change', {bubbles: true}));
+      });
+      refreshYears();
+    });
+
     // a tick copied across when both sides go by the same kind of thing
     list.addEventListener('change', function (e) {
       var c = e.target;
-      if (!c.matches('.mvals input') || !document.getElementById('mSame').checked) return;
+      if (!c.matches('.mvals input') || c.classList.contains('ytick')
+          || !document.getElementById('mSame').checked) return;
       var mine = c.closest('.mvals');
       list.querySelectorAll('.mside').forEach(function (side) {
         var other = shown(side);
         if (!other || other === mine || other.getAttribute('data-kind') !== mine.getAttribute('data-kind')) return;
         other.querySelectorAll('input').forEach(function (o) { if (o.value === c.value) o.checked = c.checked; });
       });
+      refreshYears();
     });
+    list.addEventListener('change', function (e) {
+      if (e.target.matches('.ymons input')) refreshYears();
+    });
+    refreshYears();
   })();
   </script>
   <?php endif; ?>

@@ -179,6 +179,17 @@ thead:has(.colfilters) th{position:static}
   border-bottom:1px solid var(--line);white-space:nowrap;font-size:.85rem}
 .mhead select{width:auto;padding:.15rem .3rem;font-size:.82rem}
 
+/* a year at a time in the month picker: a block per year, with a tick that
+   takes the whole year, so several years of months are not sixty ticks */
+.myear{margin:.2rem 0;border-left:2px solid var(--line);padding-left:.4rem}
+.myear>summary{cursor:pointer;list-style:none;display:flex;gap:.4rem;align-items:center;
+  font-weight:600;font-size:.88rem;padding:.1rem 0}
+.myear>summary::-webkit-details-marker{display:none}
+.myear>summary::after{content:' B8';color:var(--muted);font-weight:400}
+.myear[open]>summary::after{content:' BE'}
+.myear>summary .yhead{display:inline-flex;gap:.3rem;align-items:center;margin:0;font-weight:600}
+.myear .ymons{padding-left:.9rem}
+
 /* who is signed in, at the end of the header */
 .whoami{display:flex;align-items:center;gap:.5rem;font-size:.85rem;color:var(--muted);white-space:nowrap}
 .whoami a{color:var(--muted);text-decoration:none}

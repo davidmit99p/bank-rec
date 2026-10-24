@@ -104,6 +104,34 @@ function months_label(array $months, $max = 3)
     return implode(', ', array_map(fn($ym) => date('M Y', strtotime($ym . '-01')), $months));
 }
 
+// --- by year ------------------------------------------------------------------
+//
+// A reconciliation that goes back years leaves a list of sixty or more months,
+// and choosing a year out of it means sixty ticks. So the list is grouped: one
+// block per year, each with a tick of its own that takes the whole year.
+//
+// It works on anything that starts with a year - 2026-04 from a date, or a
+// period like 2026/P1 - and leaves anything else ungrouped under ''. With only
+// one year there is nothing to group, so the list stays as it was.
+//
+// [year => [value => label]], in the order the values arrived (newest first).
+function group_by_year(array $opts)
+{
+    $years = [];
+    foreach ($opts as $v => $label) {
+        if (preg_match('/^(\d{4})(?:[-\/ .]|$)/', (string)$v, $m)) {
+            $yr = $m[1];
+            // "January 2026" reads as "January" under a 2026 heading
+            $short = preg_replace('/[\s,]*' . $yr . '\s*$/', '', (string)$label);
+            $years[$yr][$v] = $short !== '' ? $short : $label;
+        } else {
+            $years[''][$v] = $label;
+        }
+    }
+    if (count($years) < 2 && !isset($years[''])) return ['' => $opts];
+    return $years;
+}
+
 // --- months, or periods, one side at a time ------------------------------------
 //
 // Each side can be narrowed by the month of its transaction date, or by one of
