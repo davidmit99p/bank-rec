@@ -1078,7 +1078,12 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
   var elL = document.getElementById('sumL'), elB = document.getElementById('sumB'),
       elD = document.getElementById('diff'),
       matchBtn = document.getElementById('manualBtn'),
-      unBtn = document.getElementById('unmatchBtn');
+      unBtn = document.getElementById('unmatchBtn'),
+      backBtn = document.getElementById('unasideBtn');
+
+  // In the set-aside view there is one thing to do with a ticked item: bring it
+  // back. Matching from here would leave something both matched and set aside.
+  var ASIDE_VIEW = <?= $show === 'aside' ? 'true' : 'false' ?>;
 
   var LEFT_LABEL  = <?= json_encode(side_label('ledger'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
   var RIGHT_LABEL = <?= json_encode(side_label('bank'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
@@ -1145,6 +1150,18 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
 
     elL.textContent = LEFT_LABEL + ' ticked ' + fmt(l) + ' (' + nL + ')';
     elB.textContent = RIGHT_LABEL + ' ticked ' + fmt(b) + ' (' + nB + ')';
+
+    if (ASIDE_VIEW) {
+      matchBtn.style.display = 'none';
+      unBtn.style.display = 'none';
+      var picked = nL + nB;
+      if (backBtn) backBtn.disabled = picked === 0;
+      elD.textContent = picked
+        ? picked + ' ticked to bring back, ' + fmt(l + b)
+        : 'Tick what to bring back';
+      elD.className = 'balance' + (picked ? ' ok' : '');
+      return;
+    }
 
     var mixed = nOpen > 0 && nMatched > 0;
     var unmatchMode = nMatched > 0 && nOpen === 0;
