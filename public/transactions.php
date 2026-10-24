@@ -64,7 +64,7 @@ function filtered_ids($side)
     $q      = trim((string)($p[$pfx . 'q'] ?? ''));
     $from   = trim((string)($p['from'] ?? ''));
     $to     = trim((string)($p['to'] ?? ''));
-    $show   = in_array($p['show'] ?? '', ['open', 'matched', 'both'], true) ? $p['show'] : 'open';
+    $show   = in_array($p['show'] ?? '', ['open', 'matched', 'both', 'aside'], true) ? $p['show'] : 'open';
     $in     = !empty($p['in']);
     $out    = !empty($p['out']);
     $sign   = ($in === $out) ? 'both' : ($in ? 'in' : 'out');
@@ -209,6 +209,47 @@ if (($_POST['action'] ?? '') === 'manual') {
     }
 }
 
+// --- setting items aside, and bringing them back ------------------------------
+//
+// Items that cannot be settled here at all: looked at, reason written, out of
+// the way. See includes/aside.php for why the difference still mentions them.
+if (($_POST['action'] ?? '') === 'aside') {
+    $ids = array_merge(posted_ids('ledger'), posted_ids('bank'));
+    try {
+        [$n, $msg] = set_aside($ids, (string)($_POST['aside_why'] ?? ''));
+        if (!$n) throw new RuntimeException($msg);
+        flash($msg);
+        header('Location: transactions.php?' . http_build_query($_POST['back'] ?? []));
+        exit;
+    } catch (Throwable $e) {
+        $error = $e->getMessage();
+    }
+}
+
+if (($_POST['action'] ?? '') === 'unaside') {
+    $ids = array_merge(posted_ids('ledger'), posted_ids('bank'));
+    try {
+        [$n, $msg] = bring_back($ids);
+        if (!$n) throw new RuntimeException($msg);
+        flash($msg);
+        header('Location: transactions.php?' . http_build_query($_POST['back'] ?? []));
+        exit;
+    } catch (Throwable $e) {
+        $error = $e->getMessage();
+    }
+}
+
+// the reason on one item, changed from the list itself
+if (($_POST['action'] ?? '') === 'aside_why') {
+    [$ok, $msg] = set_aside_reason((int)($_POST['txn_id'] ?? 0), (string)($_POST['aside_why'] ?? ''));
+    if ($ok) {
+        flash($msg);
+        header('Location: transactions.php?' . http_build_query($_POST['back'] ?? []));
+        exit;
+    }
+    $error = $msg;
+}
+
 // --- a note against several items at once -------------------------------------
 //
 // The ticked items are all part of the same issue. One note covers them, and
@@ -336,7 +377,7 @@ $lfFlat = []; foreach ($lf as $k => $v) $lfFlat['lf_' . $k] = $v;
 $bfFlat = []; foreach ($bf as $k => $v) $bfFlat['bf_' . $k] = $v;
 $from = trim($_GET['from'] ?? '');
 $to   = trim($_GET['to'] ?? '');
-$show = in_array($_GET['show'] ?? '', ['open', 'matched', 'both'], true) ? $_GET['show'] : 'open';
+$show = in_array($_GET['show'] ?? '', ['open', 'matched', 'both', 'aside'], true) ? $_GET['show'] : 'open';
 // one group note's items, both sides
 $grp  = (int)($_GET['grp'] ?? 0);
 if ($grp && !get_issue($grp)) $grp = 0;
@@ -689,6 +730,9 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
       <option value="open"<?= $show === 'open' ? ' selected' : '' ?>>Unmatched</option>
       <option value="matched"<?= $show === 'matched' ? ' selected' : '' ?>>Matched</option>
       <option value="both"<?= $show === 'both' ? ' selected' : '' ?>>Both</option>
+      <?php if (aside_ready()): ?>
+        <option value="aside"<?= $show === 'aside' ? ' selected' : '' ?>>Set aside</option>
+      <?php endif; ?>
     </select></div>
   <div><label>Direction</label>
     <span style="display:flex;gap:.9rem;align-items:center;padding-top:.35rem;white-space:nowrap">
@@ -754,6 +798,16 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
           title="Write one note against everything ticked, on either side, and tie them together">
           Group note</button>
       <?php endif; ?>
+      <?php if (aside_ready()): ?>
+        <?php if ($show === 'aside'): ?>
+          <button class="btn ghost" type="submit" name="action" value="unaside" id="unasideBtn" disabled
+            title="Put these back in the lists, so they can be matched again">Bring back</button>
+        <?php else: ?>
+          <button class="btn ghost" type="button" id="asideBtn" disabled
+            title="Items that cannot be settled here: set them aside with a reason, out of the way of the work">
+            Set aside</button>
+        <?php endif; ?>
+      <?php endif; ?>
       <button class="btn ghost" type="button" id="balanceBtn"
         data-left="<?= h(side_label('ledger')) ?>" data-right="<?= h(side_label('bank')) ?>"
         title="Look through the items on this page for a set that closes the difference">
@@ -767,12 +821,32 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
     $gap = round($lTot - $bTot, 2);
     if (abs($gap) < 0.005) $gap = 0.0;     // never "-0.00"
   ?>
+  <?php
+    // What is being left out of that difference, said plainly. A zero here means
+    // everything is either matched or set aside with a reason - never that there
+    // is nothing wrong - so the figure is always shown with its qualifier.
+    $lAside = aside_ready() ? aside_totals('ledger') : ['n' => 0, 'total' => 0.0];
+    $bAside = aside_ready() ? aside_totals('bank')   : ['n' => 0, 'total' => 0.0];
+    $asideN = $lAside['n'] + $bAside['n'];
+    $gapWith = $gap + $lAside['total'] - $bAside['total'];
+  ?>
   <p class="totgap">
     <?= h(side_label('ledger')) ?> <span class="num"><?= money($lTot) ?></span>
     <span class="muted">less</span> <?= h(side_label('bank')) ?> <span class="num"><?= money($bTot) ?></span>
     <span class="balance <?= abs($gap) < 0.005 ? 'ok' : 'off' ?>">Difference <span class="num"><?= money($gap) ?></span></span>
     <span class="muted small">for everything that fits the filters, on every page</span>
   </p>
+  <?php if ($asideN && $show !== 'aside'): ?>
+    <p class="totgap" style="margin-top:-.5rem">
+      <span class="muted small">excluding</span>
+      <a class="balance" href="?<?= h(http_build_query(['show' => 'aside'] + array_diff_key($_GET, ['show' => 1, 'lp' => 1, 'bp' => 1]))) ?>"
+         style="text-decoration:none" title="Look at what has been set aside, and bring any of it back"><?=
+        number_format($asideN) ?> set aside</a>
+      <span class="muted small"><?= h(side_label('ledger')) ?> <span class="num"><?= money($lAside['total']) ?></span>,
+        <?= h(side_label('bank')) ?> <span class="num"><?= money($bAside['total']) ?></span> &mdash;
+        with them the difference is <span class="num"><?= money($gapWith) ?></span></span>
+    </p>
+  <?php endif; ?>
 
   <div class="panel bal-panel" id="balancePanel" hidden></div>
 
@@ -949,6 +1023,12 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
                     // outside it, so a long narrative never hides them ?>
               <td class="desccell">
                 <span class="desc" title="<?= h($t['description']) ?>"><?= h($t['description']) ?></span><?= amend_ready() ? amend_mark($t, 'desc') : '' ?><span class="rowtags">
+                <?php if (aside_ready() && !empty($t['aside_at'])): ?>
+                  <button type="button" class="tag asidetag" data-id="<?= (int)$t['id'] ?>"
+                    data-why="<?= h((string)($t['aside_why'] ?? '')) ?>"
+                    title="Set aside<?= $t['aside_by'] ? ' by ' . h($t['aside_by']) : '' ?> on <?= h(substr((string)$t['aside_at'], 0, 10)) ?><?=
+                      $t['aside_why'] ? '&#10;' . h((string)$t['aside_why']) : '&#10;No reason written - click to write one' ?>">set aside</button>
+                <?php endif; ?>
                 <?php if (rolling_ready() && !empty($t['restated_at'])): ?>
                   <span class="tag" title="The amount was <?= h(money($t['prev_value'] ?? 0)) ?> when first loaded&#10;Restated by a reload on <?= h(substr((string)$t['restated_at'], 0, 10)) ?>">restated</span>
                 <?php endif; ?>
@@ -1339,6 +1419,98 @@ document.addEventListener('click', function (e) {
     note.hidden = to.value === 'none';
     lab.hidden  = to.value === 'none';
     lab.textContent = to.value === 'new' ? 'The note' : 'The note (leave empty to keep what it says)';
+  });
+})();
+</script>
+<?php endif; ?>
+
+<?php if (aside_ready()): ?>
+<dialog id="asideWhyDlg" class="split-dlg">
+  <form method="post">
+    <input type="hidden" name="action" value="aside_why">
+    <input type="hidden" name="txn_id" id="awId">
+    <?php foreach ($back as $k => $v): ?>
+      <input type="hidden" name="back[<?= h($k) ?>]" value="<?= h($v) ?>">
+    <?php endforeach; ?>
+    <h2 style="margin-top:0">Why this is set aside</h2>
+    <label>The reason</label>
+    <textarea name="aside_why" id="awWhy" style="min-height:6rem"
+      placeholder="What has to be fixed, and where"></textarea>
+    <div class="actions">
+      <button class="btn" type="submit">Save</button>
+      <button class="btn ghost" type="button" id="awCancel">Cancel</button>
+    </div>
+  </form>
+</dialog>
+<script>
+(function () {
+  var dlg = document.getElementById('asideWhyDlg');
+  if (!dlg || !dlg.showModal) return;
+  document.addEventListener('click', function (e) {
+    var tag = e.target.closest('.asidetag');
+    if (!tag) return;
+    document.getElementById('awId').value = tag.dataset.id;
+    document.getElementById('awWhy').value = tag.dataset.why || '';
+    dlg.showModal();
+  });
+  document.getElementById('awCancel').addEventListener('click', function () { dlg.close(); });
+})();
+</script>
+<?php endif; ?>
+
+<?php if (aside_ready() && $show !== 'aside'): ?>
+<dialog id="asideDlg" class="split-dlg">
+  <form method="post" id="asideForm">
+    <input type="hidden" name="action" value="aside">
+    <input type="hidden" name="ledger_ids" id="asLedgerIds">
+    <input type="hidden" name="bank_ids"   id="asBankIds">
+    <?php foreach ($back as $k => $v): ?>
+      <input type="hidden" name="back[<?= h($k) ?>]" value="<?= h($v) ?>">
+    <?php endforeach; ?>
+    <h2 style="margin-top:0">Set aside</h2>
+    <p class="muted small" id="asSummary"></p>
+    <p class="small" style="margin-top:-.3rem">These come out of the lists and out of the rules, so what
+      is left in front of you is what can still be done. They are <b>not</b> settled: the difference
+      keeps saying what it is excluding, and they stay on the reconciliation statement.</p>
+    <label>Why they cannot be settled here</label>
+    <textarea name="aside_why" id="asWhy" style="min-height:6rem"
+      placeholder="Duplicate posting in the ledger, awaiting a credit note, paid to the wrong account - whatever has to be fixed in the source data"></textarea>
+    <div class="actions">
+      <button class="btn" type="submit">Set aside</button>
+      <button class="btn ghost" type="button" id="asCancel">Cancel</button>
+      <span class="muted small" style="margin-left:auto">Bring them back any time from Show &rarr; Set aside.</span>
+    </div>
+  </form>
+</dialog>
+<script>
+(function () {
+  var dlg = document.getElementById('asideDlg');
+  var btn = document.getElementById('asideBtn');
+  var form = document.getElementById('txnForm');
+  if (!dlg || !btn || !dlg.showModal) return;
+  function ticked() {
+    var out = { L: [], B: [] };
+    form.querySelectorAll('.tick').forEach(function (c) { if (c.checked) out[c.dataset.side].push(c.value); });
+    return out;
+  }
+  function refresh() { var t = ticked(); btn.disabled = (t.L.length + t.B.length) === 0; }
+  form.addEventListener('change', refresh);
+  form.addEventListener('click', function () { setTimeout(refresh, 0); });
+  refresh();
+  btn.addEventListener('click', function () {
+    var t = ticked();
+    document.getElementById('asLedgerIds').value = t.L.join(',');
+    document.getElementById('asBankIds').value   = t.B.join(',');
+    document.getElementById('asSummary').textContent =
+      t.L.length + ' on the left, ' + t.B.length + ' on the right.';
+    dlg.showModal();
+  });
+  document.getElementById('asCancel').addEventListener('click', function () { dlg.close(); });
+  document.getElementById('asideForm').addEventListener('submit', function (e) {
+    var save = e.target.querySelector('button[type=submit]');
+    if (save.disabled) { e.preventDefault(); return; }
+    save.disabled = true;
+    save.textContent = 'Setting aside...';
   });
 })();
 </script>

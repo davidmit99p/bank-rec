@@ -135,7 +135,7 @@ $c    = isset($dims[$_GET['c'] ?? '']) ? $_GET['c'] : '';
 $f    = isset($dims[$_GET['f'] ?? '']) ? $_GET['f'] : '';
 $fv   = trim((string)($_GET['fv'] ?? ''));
 $rf   = trim((string)($_GET['rf'] ?? ''));
-$show = in_array($_GET['show'] ?? '', ['open', 'matched', 'both'], true) ? $_GET['show'] : 'open';
+$show = in_array($_GET['show'] ?? '', ['open', 'matched', 'both', 'aside'], true) ? $_GET['show'] : 'open';
 $opp  = !empty($_GET['opp']);
 // hiding what agrees is the useful default; "all" asks to see everything
 $hide = empty($_GET['all']);

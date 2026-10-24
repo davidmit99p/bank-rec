@@ -16,7 +16,7 @@ $side = ($_GET['side'] ?? '') === 'bank' ? 'bank' : 'ledger';
 $q    = trim($_GET['q'] ?? '');
 $from = trim($_GET['from'] ?? '');
 $to   = trim($_GET['to'] ?? '');
-$show = in_array($_GET['show'] ?? '', ['open', 'matched', 'both'], true) ? $_GET['show'] : 'open';
+$show = in_array($_GET['show'] ?? '', ['open', 'matched', 'both', 'aside'], true) ? $_GET['show'] : 'open';
 // one column or several, exactly as the screen was sorted
 [$sort, $dir] = sort_settings(read_sort($_GET['sort'] ?? '', $_GET['dir'] ?? ''));
 
@@ -56,6 +56,9 @@ if (issues_ready()) $head[] = 'Group';   // the system's own number for the line
 foreach (extra_labels($side) as $label) $head[] = $label;
 if (extras_ready()) $head[] = 'Notes';
 if (amend_ready()) { $head[] = 'Date as loaded'; $head[] = 'Description as loaded'; $head[] = 'Why amended'; }
+// the reason, because a download of what is set aside IS the list of things to
+// go and fix in the source data
+if (aside_ready()) { $head[] = 'Set aside on'; $head[] = 'Set aside by'; $head[] = 'Why set aside'; }
 fputcsv($out, $head);
 
 $total = 0.0;
@@ -65,7 +68,8 @@ foreach ($rows as $r) {
         $r['txn_date'],
         $r['description'],
         number_format((float)$r['value'], 2, '.', ''),   // plain, so Excel reads it as a number
-        ($r['matched_here'] ?? null) === null ? 'Unmatched' : 'Matched',
+        ($r['matched_here'] ?? null) !== null ? 'Matched'
+            : (empty($r['aside_at']) ? 'Unmatched' : 'Set aside'),
         $r['matched_rule'] ?? '',
         $r['run_ref'] ?? '',
         empty($r['parent_id']) ? '' : number_format((float)($r['parent_value'] ?? 0), 2, '.', ''),
@@ -82,6 +86,11 @@ foreach ($rows as $r) {
         $line[] = $r['orig_txn_date'] ?? '';
         $line[] = $r['orig_description'] ?? '';
         $line[] = $r['amend_why'] ?? '';
+    }
+    if (aside_ready()) {
+        $line[] = empty($r['aside_at']) ? '' : substr((string)$r['aside_at'], 0, 10);
+        $line[] = $r['aside_by'] ?? '';
+        $line[] = $r['aside_why'] ?? '';
     }
     fputcsv($out, $line);
 }

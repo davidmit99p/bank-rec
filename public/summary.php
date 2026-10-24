@@ -5,7 +5,7 @@ require_once __DIR__ . '/../includes/layout.php';
 
 $pdo = db();
 
-$show = in_array($_GET['show'] ?? '', ['open', 'matched', 'both'], true) ? $_GET['show'] : 'open';
+$show = in_array($_GET['show'] ?? '', ['open', 'matched', 'both', 'aside'], true) ? $_GET['show'] : 'open';
 
 $virgin  = !isset($_GET['in']) && !isset($_GET['out']);
 $wantIn  = $virgin ? true : isset($_GET['in']);
@@ -68,7 +68,9 @@ function side_position($side)
     $sql = "SELECT COUNT(*) n,
                    COALESCE(SUM(t.value), 0) total,
                    COALESCE(SUM(CASE WHEN " . open_where('t') . " THEN 1 ELSE 0 END), 0) open_n,
-                   COALESCE(SUM(CASE WHEN " . open_where('t') . " THEN t.value ELSE 0 END), 0) open_total
+                   COALESCE(SUM(CASE WHEN " . open_where('t') . " THEN t.value ELSE 0 END), 0) open_total,
+                   COALESCE(SUM(CASE WHEN " . aside_where('t') . " THEN 1 ELSE 0 END), 0) aside_n,
+                   COALESCE(SUM(CASE WHEN " . aside_where('t') . " THEN t.value ELSE 0 END), 0) aside_total
             FROM rec_txns t
             WHERE " . file_where($side, 't') . not_split('t');
     $r = db()->query($sql)->fetch();
@@ -79,6 +81,12 @@ function side_position($side)
         'open_total' => (float)$r['open_total'],
         'done_n'     => (int)$r['n'] - (int)$r['open_n'],
         'done_total' => (float)$r['total'] - (float)$r['open_total'],
+        // set aside: unmatched, but looked at and parked with a reason, so what
+        // is actually left to do is the open items less these
+        'aside_n'     => (int)$r['aside_n'],
+        'aside_total' => (float)$r['aside_total'],
+        'left_n'      => (int)$r['open_n'] - (int)$r['aside_n'],
+        'left_total'  => (float)$r['open_total'] - (float)$r['aside_total'],
     ];
 }
 $posL = side_position('ledger');
@@ -129,6 +137,12 @@ render_header('Summary');
     ['Unmatched',               'open_n', 'open_total', 'Not yet matched in this reconciliation'],
     ['Items matched',           'done_n', 'done_total', 'The first line less the second'],
   ];
+  // only worth the rows once something has actually been set aside
+  if (aside_ready() && ($posL['aside_n'] || $posB['aside_n'])) {
+    $lines[] = ['Set aside', 'aside_n', 'aside_total',
+                'Unmatched, but parked with a reason - to be fixed in the source data'];
+    $lines[] = ['Left to do', 'left_n', 'left_total', 'Unmatched less what is set aside'];
+  }
 ?>
 <div class="panel">
   <div class="side-head"><h2 style="margin:0">Where this stands</h2>
@@ -172,6 +186,9 @@ render_header('Summary');
       <option value="open"<?= $show === 'open' ? ' selected' : '' ?>>Unmatched</option>
       <option value="matched"<?= $show === 'matched' ? ' selected' : '' ?>>Matched</option>
       <option value="both"<?= $show === 'both' ? ' selected' : '' ?>>Everything</option>
+      <?php if (aside_ready()): ?>
+        <option value="aside"<?= $show === 'aside' ? ' selected' : '' ?>>Set aside</option>
+      <?php endif; ?>
     </select></div>
   <div><label>Direction</label>
     <span style="display:flex;gap:.9rem;align-items:center;padding-top:.35rem;white-space:nowrap">

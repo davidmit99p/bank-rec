@@ -59,6 +59,11 @@ textarea{min-height:4rem}
 .tag{display:inline-block;padding:.05rem .4rem;border-radius:4px;background:#efeae0;
   font-size:.75rem;color:var(--muted)}
 .tag.manual{background:#e8eef7;color:#33507a}
+/* set aside: looked at, parked with a reason, out of the way of the work.
+   A button rather than a label, because clicking it writes the reason. */
+button.tag.asidetag{background:#fbf0c4;color:#6b5410;border:1px solid #e8d9a8;cursor:pointer;
+  font:inherit;font-size:.75rem;line-height:1.4;padding:.05rem .4rem}
+button.tag.asidetag:hover{border-color:var(--accent)}
 .balance{font-weight:600;padding:.5rem .75rem;border-radius:6px;border:1px solid var(--line);background:var(--panel)}
 .balance.ok{border-color:#cfe3cf;background:#eef6ee;color:var(--good)}
 .balance.off{border-color:#eccfcf;background:#fbeeee;color:var(--bad)}

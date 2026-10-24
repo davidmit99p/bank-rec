@@ -30,6 +30,7 @@ require_once __DIR__ . '/files.php';
 require_once __DIR__ . '/splits.php';
 require_once __DIR__ . '/matchstate.php';
 require_once __DIR__ . '/issues.php';
+require_once __DIR__ . '/aside.php';
 
 // Has migration_019 been run?
 function statements_ready()
@@ -63,8 +64,13 @@ function derived_balance($side, $asAt)
 // every time someone did the work it is reporting on.
 function open_items_as_at($side, $asAt)
 {
-    $sql = "SELECT t.id, t.txn_date, t.description, t.value, t.issue_id
-            FROM rec_txns t
+    // An item set aside is STILL an unsettled difference, so it belongs here.
+    // Hiding it is a convenience for working, never a claim it has gone away -
+    // so it comes with its reason, which is the most useful thing on the page.
+    $aj = function_exists('aside_join') ? aside_join('t') : '';
+    $sql = "SELECT t.id, t.txn_date, t.description, t.value, t.issue_id"
+            . ($aj ? ", sa.reason AS aside_why" : ", NULL AS aside_why") . "
+            FROM rec_txns t" . $aj . "
             WHERE " . file_where($side, 't') . "
               AND " . open_where('t') . "
               AND t.txn_date <= ?" . not_split('t') . "
@@ -133,6 +139,17 @@ function statement_figures($asAt, $lBal, $bBal)
     ];
 }
 
+// Can a snap carry the reason an item was set aside? (migration_025)
+function snap_reasons_ready()
+{
+    static $ok = null;
+    if ($ok === null) {
+        try { db()->query("SELECT aside_why FROM rec_statement_lines LIMIT 1"); $ok = true; }
+        catch (Throwable $e) { $ok = false; }
+    }
+    return $ok;
+}
+
 // --- snaps --------------------------------------------------------------------
 //
 // A snap is a copy, not a view. Nothing in it is looked up again afterwards:
@@ -158,16 +175,20 @@ function save_snap(array $f, $note)
     $id = (int)$pdo->lastInsertId();
 
     $groups = issues_by_id();
+    $aside = snap_reasons_ready();
     $ins = $pdo->prepare("INSERT INTO rec_statement_lines
-        (statement_id, side, txn_id, txn_date, description, value, group_ref, group_note)
-        VALUES (?,?,?,?,?,?,?,?)");
+        (statement_id, side, txn_id, txn_date, description, value, group_ref, group_note"
+        . ($aside ? ", aside_why" : "") . ")
+        VALUES (?,?,?,?,?,?,?,?" . ($aside ? ",?" : "") . ")");
     foreach (['ledger' => 'l_items', 'bank' => 'b_items'] as $side => $key) {
         foreach ($f[$key] as $it) {
             $gid = (int)($it['issue_id'] ?? 0);
             $g   = $gid && isset($groups[$gid]) ? $groups[$gid] : null;
-            $ins->execute([$id, $side, (int)$it['id'], $it['txn_date'],
-                           substr((string)$it['description'], 0, 255), $it['value'],
-                           $g ? $g['ref'] : null, $g ? $g['note'] : null]);
+            $args = [$id, $side, (int)$it['id'], $it['txn_date'],
+                     substr((string)$it['description'], 0, 255), $it['value'],
+                     $g ? $g['ref'] : null, $g ? $g['note'] : null];
+            if ($aside) $args[] = $it['aside_why'] ?? null;
+            $ins->execute($args);
         }
     }
     $n = count($f['l_items']) + count($f['b_items']);

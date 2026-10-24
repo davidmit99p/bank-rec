@@ -8,6 +8,7 @@
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/files.php';
 require_once __DIR__ . '/matchstate.php';
+require_once __DIR__ . '/aside.php';
 require_once __DIR__ . '/context.php';
 require_once __DIR__ . '/splits.php';
 require_once __DIR__ . '/auth.php';
@@ -342,13 +343,18 @@ function offsets_by_nearness($tol)
 // --- loading the open items --------------------------------------------------
 
 // Everything not yet finalised as matched.
+//
+// Items set aside are left out: they have been looked at and parked with a
+// reason, so a rule picking one up again would undo a decision someone made.
+// Bring one back and it is in play once more.
 function load_open($side)
 {
     // The spare fields come too, because a rule can group on one of them.
     // no alias on the table here, so none in the conditions either
     return db()->query("SELECT id, txn_date, description, value, " . implode(', ', spare_keys()) . "
                         FROM rec_txns
-                        WHERE " . open_where('') . " AND " . file_where($side, '') . not_split()
+                        WHERE " . open_where('') . " AND " . not_aside_where('') . "
+                          AND " . file_where($side, '') . not_split()
                         . " ORDER BY txn_date, id")->fetchAll();
 }
 

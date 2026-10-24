@@ -10,6 +10,7 @@ require_once __DIR__ . '/files.php';
 require_once __DIR__ . '/context.php';
 require_once __DIR__ . '/splits.php';
 require_once __DIR__ . '/matchstate.php';
+require_once __DIR__ . '/aside.php';
 
 // Column names allowed in an ORDER BY, so nothing from the address bar
 // reaches the query.
@@ -376,6 +377,15 @@ function item_filters($side, $q, $from, $to, $show, $sign, array $colf = [], arr
     if ($show === 'open')    $where[] = open_where('t');
     if ($show === 'matched') $where[] = matched_where('t');
 
+    // Items set aside are out of the way while the rest is worked, and shown on
+    // their own when it is time to deal with them. Nothing is hidden silently:
+    // the difference on screen says what it is excluding - see includes/aside.php
+    if ($show === 'aside') {
+        $where[] = aside_where('t');
+    } elseif ($show !== 'matched') {
+        $where[] = not_aside_where('t');
+    }
+
     if ($sign === 'in')  $where[] = 't.value > 0';
     if ($sign === 'out') $where[] = 't.value < 0';
 
@@ -463,15 +473,19 @@ function list_items($side, $q, $from, $to, $show = 'open', $sortKey = 'date', $d
     // only, which is why they come from the join rather than from the row
     // With no reconciliation chosen there is nothing to join to, so the columns
     // that describe "matched here" come back empty rather than the query failing.
+    $aj = aside_join('t');
     $mj = matched_join('t');
     $cols = $mj
         ? "m.matched_at AS matched_here, m.rule_ref AS matched_rule, m.group_id AS group_id,
              r.run_ref, r.id AS run_id"
         : "NULL AS matched_here, NULL AS matched_rule, NULL AS group_id, NULL AS run_ref, NULL AS run_id";
+    $cols .= $aj ? ", sa.reason AS aside_why, sa.aside_at, sa.aside_by"
+                 : ", NULL AS aside_why, NULL AS aside_at, NULL AS aside_by";
 
     $sql = "SELECT t.*, {$cols},
                    (SELECT p.value FROM rec_txns p WHERE p.id = t.parent_id) AS parent_value
             FROM {$table} t"
+         . $aj
          . $mj
          . ($mj ? " LEFT JOIN rec_runs r ON r.id = m.run_id" : "")
          . $where

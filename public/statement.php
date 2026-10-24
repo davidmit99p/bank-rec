@@ -223,7 +223,10 @@ function side_block($f, $me, $other)
           <?php endforeach; ?>
         <?php else: $it = $bl['items'][0]; ?>
           <tr><td><span class="muted"><?= h(date('d/m/Y', strtotime($it['txn_date']))) ?></span>
-              <?= h($it['description']) ?></td>
+              <?= h($it['description']) ?>
+              <?php if (!empty($it['aside_why'])): ?>
+                <br><span class="small" style="color:var(--warn)">set aside &mdash; <?= h((string)$it['aside_why']) ?></span>
+              <?php endif; ?></td>
               <td class="num <?= $it['value'] < 0 ? 'neg' : '' ?>"><?= money($it['value']) ?></td></tr>
         <?php endif; ?>
       <?php endforeach; ?>
