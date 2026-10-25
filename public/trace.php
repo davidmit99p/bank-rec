@@ -103,22 +103,102 @@ function walk($txn, $depth, &$steps, &$visited, $cameVia = null)
 if ($start) walk($start, 0, $steps, $visited);
 
 // --- finding somewhere to start ----------------------------------------------
+// WHERE IS IT? A record can be in the file and still be in no list at all:
+// waiting in a run that was never finalised, set aside, or split into parts.
+// Those are the states that make a line look lost, so the finder looks in every
+// file, whatever state the line is in, and says which one it is.
+//
+// It searches the description AND every spare field, because a reference is what
+// you have in your hand when you come looking for something.
 $q    = trim($_GET['q'] ?? '');
 $amt  = trim($_GET['amt'] ?? '');
 $hits = [];
+$hitTotal = 0.0;
 if (!$start && ($q !== '' || $amt !== '')) {
     $where = ['1=1'];
     $args  = [];
-    if ($q !== '')   { $where[] = 't.description LIKE ?'; $args[] = '%' . $q . '%'; }
+    if ($q !== '') {
+        $cols = array_merge(['description', 'source_file'], spare_keys());
+        $where[] = '(' . implode(' OR ', array_map(fn($c) => "t.{$c} LIKE ?", $cols)) . ')';
+        foreach ($cols as $c) $args[] = '%' . $q . '%';
+    }
     if ($amt !== '' && is_numeric(str_replace(',', '', $amt))) {
-        $where[] = 'ABS(t.value) = ?'; $args[] = abs((float)str_replace(',', '', $amt));
+        $where[] = 'ABS(t.value) = ?';
+        $args[] = abs((float)str_replace(',', '', $amt));
     }
     $st = $pdo->prepare("SELECT t.*, f.name AS file_name FROM rec_txns t
                          LEFT JOIN rec_files f ON f.id = t.file_id
-                         WHERE " . implode(' AND ', $where) . " AND t.split_at IS NULL
-                         ORDER BY t.txn_date DESC, t.id DESC LIMIT 50");
+                         WHERE " . implode(' AND ', $where) . "
+                         ORDER BY t.txn_date, t.id LIMIT 300");
     $st->execute($args);
     $hits = $st->fetchAll();
+    foreach ($hits as $hit) if (empty($hit['split_at'])) $hitTotal += (float)$hit['value'];
+}
+
+// Where one record stands, in plain words: one entry per thing worth knowing.
+function where_it_stands(array $t)
+{
+    $pdo = db();
+    $out = [];
+
+    if (!empty($t['split_at'])) {
+        $out[] = ['what' => 'split into parts',
+                  'why'  => 'this line is out of the lists - its parts stand in for it',
+                  'link' => null];
+    }
+
+    $st = $pdo->prepare("SELECT c.name rec_name, r.run_ref, g.group_no
+                         FROM rec_matched m
+                         JOIN rec_match_groups g ON g.id = m.group_id
+                         JOIN rec_runs r ON r.id = m.run_id
+                         LEFT JOIN rec_recs c ON c.id = m.rec_id
+                         WHERE m.txn_id = ?");
+    $st->execute([(int)$t['id']]);
+    foreach ($st->fetchAll() as $m) {
+        $out[] = ['what' => 'matched in ' . ($m['rec_name'] ?? 'a reconciliation'),
+                  'why'  => 'match ' . (int)$m['group_no'] . ' of ' . $m['run_ref']
+                            . ', so it is out of the unmatched lists there',
+                  'link' => null];
+    }
+
+    // claimed by a run nobody finalised: in NO list until that run is finalised
+    // or discarded, which is exactly what makes a line look lost
+    $st = $pdo->prepare("SELECT r.id, r.run_ref, c.name rec_name
+                         FROM rec_match_lines l
+                         JOIN rec_match_groups g ON g.id = l.group_id
+                         JOIN rec_runs r ON r.id = g.run_id AND r.status = 'draft'
+                         LEFT JOIN rec_recs c ON c.id = r.rec_id
+                         WHERE l.txn_id = ?");
+    $st->execute([(int)$t['id']]);
+    foreach ($st->fetchAll() as $r) {
+        $out[] = ['what' => 'waiting in ' . $r['run_ref'] . ', which has not been finalised',
+                  'why'  => 'a suggested match holds it, so it is in no list and in no total until '
+                            . 'that run is finalised or discarded',
+                  'link' => 'review.php?run=' . (int)$r['id']];
+    }
+
+    if (function_exists('aside_ready') && aside_ready()) {
+        $st = $pdo->prepare("SELECT a.reason, c.name rec_name
+                             FROM rec_aside a LEFT JOIN rec_recs c ON c.id = a.rec_id
+                             WHERE a.txn_id = ?");
+        $st->execute([(int)$t['id']]);
+        foreach ($st->fetchAll() as $a) {
+            $out[] = ['what' => 'set aside in ' . ($a['rec_name'] ?? 'a reconciliation'),
+                      'why'  => trim((string)$a['reason']) === ''
+                                ? 'no reason written against it'
+                                : (string)$a['reason'],
+                      'link' => null];
+        }
+    }
+
+    if (!$out) {
+        $recs = recs_for_file($t['file_id']);
+        $out[] = ['what' => 'unmatched and in the lists',
+                  'why'  => $recs ? 'open in ' . implode(' and ', array_column($recs, 'name'))
+                                  : 'its file does not take part in any reconciliation yet',
+                  'link' => null];
+    }
+    return $out;
 }
 
 render_header('Trace');
@@ -128,8 +208,9 @@ render_header('Trace');
   that was matched to in turn &mdash; until the thread runs out.</p>
 
 <form method="get" class="panel" style="display:flex;gap:.75rem;align-items:end;flex-wrap:wrap">
-  <div style="flex:2;min-width:200px"><label>Description contains</label>
-    <input type="text" name="q" value="<?= h($q) ?>" placeholder="e.g. SKYPORT"></div>
+  <div style="flex:2;min-width:200px"><label>Description or any field contains</label>
+    <input type="text" name="q" value="<?= h($q) ?>"
+      placeholder="a reference, an account code, a customer"></div>
   <div><label>Amount (either sign)</label>
     <input type="text" name="amt" value="<?= h($amt) ?>" placeholder="149150.34"></div>
   <button class="btn" type="submit">Find</button>
@@ -138,22 +219,39 @@ render_header('Trace');
 
 <?php if ($hits): ?>
   <div class="panel">
-    <h2 style="margin-top:0">Pick one to follow</h2>
+    <h2 style="margin-top:0">Found <?= number_format(count($hits)) ?>,
+      totalling <span class="num"><?= money($hitTotal) ?></span></h2>
+    <p class="small muted" style="margin-top:-.4rem">Every file, whatever state the line is in &mdash;
+      including the three that keep one out of the lists: waiting in a run that was never finalised,
+      set aside, or split into parts. A split line is left out of the total, because its parts carry
+      the value instead.</p>
     <table>
-      <thead><tr><th>Date</th><th>File</th><th>Description</th><th class="num">Value</th><th></th></tr></thead>
+      <thead><tr><th>Date</th><th>File</th><th>Description</th><th class="num">Value</th>
+        <th>Where it stands</th><th></th></tr></thead>
       <tbody>
-      <?php foreach ($hits as $hit): ?>
+      <?php foreach ($hits as $hit): $stands = where_it_stands($hit); ?>
         <tr><td class="small"><?= h($hit['txn_date']) ?></td>
             <td class="small"><?= h($hit['file_name']) ?></td>
             <td class="desc" title="<?= h($hit['description']) ?>"><?= h($hit['description']) ?></td>
             <td class="num <?= $hit['value'] < 0 ? 'neg' : '' ?>"><?= money($hit['value']) ?></td>
+            <td class="small"><?php foreach ($stands as $i => $sd): ?>
+                <?= $i ? '<br>' : '' ?><b><?= h($sd['what']) ?></b>
+                <?php if ($sd['link']): ?>
+                  <a class="tag" href="<?= h($sd['link']) ?>" style="text-decoration:none">open it</a>
+                <?php endif; ?>
+                <br><span class="muted"><?= h($sd['why']) ?></span>
+            <?php endforeach; ?></td>
             <td><a class="btn ghost small" href="?txn=<?= (int)$hit['id'] ?>">Follow this</a></td></tr>
       <?php endforeach; ?>
       </tbody>
     </table>
   </div>
 <?php elseif (!$start && ($q !== '' || $amt !== '')): ?>
-  <div class="panel"><p class="muted">Nothing found.</p></div>
+  <div class="panel"><p class="muted" style="margin:0">Nothing found, in any file and in any state, so
+    those records are not loaded at all &mdash; whatever the importer said when you tried to load them
+    again. Its warning compares only the date and the amount within the file, so a figure that repeats
+    (a monthly fee on a month end, say) looks like a duplicate when it is a different record.</p>
+  </div>
 <?php endif; ?>
 
 <?php if ($start): ?>

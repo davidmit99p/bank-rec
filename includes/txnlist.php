@@ -447,6 +447,31 @@ function item_filters($side, $q, $from, $to, $show, $sign, array $colf = [], arr
     return [$table, ' WHERE ' . implode(' AND ', $where), $args];
 }
 
+// --- what a run that was never finalised is holding ---------------------------
+//
+// A suggested match takes its items out of the unmatched lists so they cannot be
+// ticked twice, but it is not a match until the run is finalised. So until then
+// those items are in NO list and in NO total, which is how a line comes to look
+// lost. The screen says so rather than leaving you to wonder.
+//
+// ['n' => ..., 'total' => ..., 'runs' => [['id' => ..., 'run_ref' => ...], ...]]
+function draft_held($side)
+{
+    $claim = "EXISTS (SELECT 1 FROM rec_match_lines ml
+                      JOIN rec_match_groups mg ON mg.id = ml.group_id
+                      JOIN rec_runs mr ON mr.id = mg.run_id AND mr.status = 'draft'"
+                      . rec_and('mr') . "
+                      WHERE ml.txn_id = t.id)";
+    $sql = "SELECT COUNT(*) n, COALESCE(SUM(t.value), 0) total FROM rec_txns t
+            WHERE " . file_where($side, 't') . " AND " . open_where('t')
+            . " AND " . $claim . (splits_ready() ? " AND t.split_at IS NULL" : "");
+    $r = db()->query($sql)->fetch();
+    $runs = db()->query("SELECT r.id, r.run_ref FROM rec_runs r
+                         WHERE r.status = 'draft'" . rec_and('r') . "
+                         ORDER BY r.id DESC")->fetchAll();
+    return ['n' => (int)$r['n'], 'total' => (float)$r['total'], 'runs' => $runs];
+}
+
 // How many, and what they come to - across everything matching, not just the
 // page on screen. The totals are what a reconciliation turns on, so they must
 // never describe only part of the list.

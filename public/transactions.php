@@ -836,6 +836,25 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
     <span class="balance <?= abs($gap) < 0.005 ? 'ok' : 'off' ?>">Difference <span class="num"><?= money($gap) ?></span></span>
     <span class="muted small">for everything that fits the filters, on every page</span>
   </p>
+  <?php
+    // Items a suggested match is holding: out of every list and every total until
+    // the run is finalised or discarded. Silence here is what makes a line look
+    // lost, so it is said plainly, with the way in to deal with it.
+    $lHeld = draft_held('ledger');
+    $bHeld = draft_held('bank');
+    $heldN = $lHeld['n'] + $bHeld['n'];
+  ?>
+  <?php if ($heldN): ?>
+    <p class="totgap" style="margin-top:-.5rem">
+      <span class="balance off"><?= number_format($heldN) ?> waiting in a run you have not finalised</span>
+      <span class="muted small"><?= h(side_label('ledger')) ?> <span class="num"><?= money($lHeld['total']) ?></span>,
+        <?= h(side_label('bank')) ?> <span class="num"><?= money($bHeld['total']) ?></span> &mdash;
+        out of the lists and out of the difference until the run is finalised or thrown away</span>
+      <?php foreach (array_slice($lHeld['runs'] ?: $bHeld['runs'], 0, 2) as $r): ?>
+        <a class="btn ghost small" href="review.php?run=<?= (int)$r['id'] ?>">Open <?= h($r['run_ref']) ?></a>
+      <?php endforeach; ?>
+    </p>
+  <?php endif; ?>
   <?php if ($asideN && $show !== 'aside'): ?>
     <p class="totgap" style="margin-top:-.5rem">
       <span class="muted small">excluding</span>
