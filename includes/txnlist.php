@@ -380,9 +380,12 @@ function item_filters($side, $q, $from, $to, $show, $sign, array $colf = [], arr
     // Items set aside are out of the way while the rest is worked, and shown on
     // their own when it is time to deal with them. Nothing is hidden silently:
     // the difference on screen says what it is excluding - see includes/aside.php
+    //
+    // 'all' leaves nothing out at all, which is what you want to tie the screen
+    // back to the grand total of what was loaded.
     if ($show === 'aside') {
         $where[] = aside_where('t');
-    } elseif ($show !== 'matched') {
+    } elseif ($show !== 'matched' && $show !== 'all') {
         $where[] = not_aside_where('t');
     }
 
@@ -435,7 +438,10 @@ function item_filters($side, $q, $from, $to, $show, $sign, array $colf = [], arr
     // Items already sitting in a run that has not been finalised are not
     // available to tick again. Asked as a question about the run rather than by
     // listing every claimed id, which would be thousands of them at volume.
-    if ($show !== 'matched') {
+    //
+    // 'all' keeps them, because they are part of what was loaded; ticking one is
+    // refused when it is matched, which is the honest place to say so.
+    if ($show !== 'matched' && $show !== 'all') {
         $where[] = "(" . matched_where('t') . " OR NOT EXISTS (
                         SELECT 1 FROM rec_match_lines ml
                         JOIN rec_match_groups mg ON mg.id = ml.group_id

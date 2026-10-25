@@ -16,7 +16,7 @@ $side = ($_GET['side'] ?? '') === 'bank' ? 'bank' : 'ledger';
 $q    = trim($_GET['q'] ?? '');
 $from = trim($_GET['from'] ?? '');
 $to   = trim($_GET['to'] ?? '');
-$show = in_array($_GET['show'] ?? '', ['open', 'matched', 'both', 'aside'], true) ? $_GET['show'] : 'open';
+$show = in_array($_GET['show'] ?? '', ['open', 'matched', 'both', 'aside', 'all'], true) ? $_GET['show'] : 'open';
 // one column or several, exactly as the screen was sorted
 [$sort, $dir] = sort_settings(read_sort($_GET['sort'] ?? '', $_GET['dir'] ?? ''));
 

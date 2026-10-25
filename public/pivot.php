@@ -163,7 +163,7 @@ $c    = isset($dims[$_GET['c'] ?? '']) ? $_GET['c'] : '';
 $f    = isset($dims[$_GET['f'] ?? '']) ? $_GET['f'] : '';
 $fv   = trim((string)($_GET['fv'] ?? ''));
 $rf   = trim((string)($_GET['rf'] ?? ''));
-$show = in_array($_GET['show'] ?? '', ['open', 'matched', 'both', 'aside'], true) ? $_GET['show'] : 'open';
+$show = in_array($_GET['show'] ?? '', ['open', 'matched', 'both', 'aside', 'all'], true) ? $_GET['show'] : 'open';
 $opp  = !empty($_GET['opp']);
 // hiding what agrees is the useful default; "all" asks to see everything.
 // Reading one side there is nothing to agree with, so everything is shown.
@@ -190,6 +190,7 @@ function pivot_side($side, array $dims, $r, $c, $f, $fv, $show, $rf = '')
     if ($show === 'open')    $where[] = open_where('t') . ' AND ' . not_aside_where('t');
     if ($show === 'matched') $where[] = matched_where('t');
     if ($show === 'aside')   $where[] = aside_where('t');
+    if ($show === 'both')    $where[] = not_aside_where('t');   // 'all' leaves nothing out
     $args = [];
     if ($f !== '' && $fv !== '') { $where[] = $dims[$f][$p] . ' = ?'; $args[] = $fv; }
     if ($rowCond = pivot_row_where($rx, $rf)) {
@@ -325,10 +326,11 @@ function pivot_why_empty($side, array $dims, $r, $c, $f, $fv, $show, $rf)
     $state = ['open' => open_where('t') . ' AND ' . not_aside_where('t'),
               'matched' => matched_where('t'),
               'aside' => aside_where('t'),
-              'both' => '1 = 1'][$show] ?? '1 = 1';
+              'both' => not_aside_where('t'),
+              'all' => '1 = 1'][$show] ?? '1 = 1';
     $ofState = $count([$state]);
     $words = ['open' => 'unmatched', 'matched' => 'matched', 'aside' => 'set aside',
-              'both' => 'loaded'][$show] ?? 'loaded';
+              'both' => 'matched or unmatched', 'all' => 'loaded'][$show] ?? 'loaded';
 
     if (!(int)$ofState['n']) {
         $out = 'Of the ' . number_format((int)$all['n']) . ' items on that side, none are '
@@ -491,10 +493,11 @@ $cellHtml = function ($cell, $href, $strong = false) use ($diffOf, $oneSide, $on
     <select name="show" onchange="this.form.submit()">
       <option value="open"<?= $show === 'open' ? ' selected' : '' ?>>Unmatched</option>
       <option value="matched"<?= $show === 'matched' ? ' selected' : '' ?>>Matched</option>
-      <option value="both"<?= $show === 'both' ? ' selected' : '' ?>>Everything</option>
+      <option value="both"<?= $show === 'both' ? ' selected' : '' ?>>Matched and unmatched</option>
       <?php if (function_exists('aside_ready') && aside_ready()): ?>
         <option value="aside"<?= $show === 'aside' ? ' selected' : '' ?>>Set aside</option>
       <?php endif; ?>
+      <option value="all"<?= $show === 'all' ? ' selected' : '' ?>>Everything loaded</option>
     </select></div>
   <?php if (!$oneSide): ?>
     <div style="display:flex;flex-direction:column;gap:.2rem;padding-bottom:.2rem">
@@ -588,8 +591,8 @@ if (!$noFiles && !$spareCount): ?>
       Hover a cell for each side's total and count.</p>
     <?php
     // the legend follows the Show setting, so "items" means what is on show
-    $items = ['open' => 'items still to match', 'matched' => 'matched items', 'both' => 'items',
-              'aside' => 'items set aside'][$show] ?? 'items';
+    $items = ['open' => 'items still to match', 'matched' => 'matched items',
+              'both' => 'items', 'aside' => 'items set aside', 'all' => 'items'][$show] ?? 'items';
     ?>
     <?php if ($oneSide): ?>
       <p class="small muted" style="margin-top:-.2rem">Each figure is what <?= h(side_label($oneSide)) ?>

@@ -5,7 +5,7 @@ require_once __DIR__ . '/../includes/layout.php';
 
 $pdo = db();
 
-$show = in_array($_GET['show'] ?? '', ['open', 'matched', 'both', 'aside'], true) ? $_GET['show'] : 'open';
+$show = in_array($_GET['show'] ?? '', ['open', 'matched', 'both', 'aside', 'all'], true) ? $_GET['show'] : 'open';
 
 $virgin  = !isset($_GET['in']) && !isset($_GET['out']);
 $wantIn  = $virgin ? true : isset($_GET['in']);
@@ -19,6 +19,9 @@ function monthly($side, $show, $sign)
     $where = [file_where($side, 't')];
     if ($show === 'open')    $where[] = open_where('t');
     if ($show === 'matched') $where[] = matched_where('t');
+    if ($show === 'aside')   $where[] = aside_where('t');
+    // 'both' is the work - matched and unmatched; 'all' leaves nothing out
+    if ($show === 'open' || $show === 'both') $where[] = not_aside_where('t');
     if ($sign === 'in')      $where[] = 't.value > 0';
     if ($sign === 'out')     $where[] = 't.value < 0';
     $sql = "SELECT DATE_FORMAT(t.txn_date, '%Y-%m') ym,
@@ -185,10 +188,11 @@ render_header('Summary');
     <select name="show" onchange="this.form.submit()">
       <option value="open"<?= $show === 'open' ? ' selected' : '' ?>>Unmatched</option>
       <option value="matched"<?= $show === 'matched' ? ' selected' : '' ?>>Matched</option>
-      <option value="both"<?= $show === 'both' ? ' selected' : '' ?>>Everything</option>
+      <option value="both"<?= $show === 'both' ? ' selected' : '' ?>>Matched and unmatched</option>
       <?php if (aside_ready()): ?>
         <option value="aside"<?= $show === 'aside' ? ' selected' : '' ?>>Set aside</option>
       <?php endif; ?>
+      <option value="all"<?= $show === 'all' ? ' selected' : '' ?>>Everything loaded</option>
     </select></div>
   <div><label>Direction</label>
     <span style="display:flex;gap:.9rem;align-items:center;padding-top:.35rem;white-space:nowrap">

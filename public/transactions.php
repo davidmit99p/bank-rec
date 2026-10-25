@@ -64,7 +64,7 @@ function filtered_ids($side)
     $q      = trim((string)($p[$pfx . 'q'] ?? ''));
     $from   = trim((string)($p['from'] ?? ''));
     $to     = trim((string)($p['to'] ?? ''));
-    $show   = in_array($p['show'] ?? '', ['open', 'matched', 'both', 'aside'], true) ? $p['show'] : 'open';
+    $show   = in_array($p['show'] ?? '', ['open', 'matched', 'both', 'aside', 'all'], true) ? $p['show'] : 'open';
     $in     = !empty($p['in']);
     $out    = !empty($p['out']);
     $sign   = ($in === $out) ? 'both' : ($in ? 'in' : 'out');
@@ -377,7 +377,7 @@ $lfFlat = []; foreach ($lf as $k => $v) $lfFlat['lf_' . $k] = $v;
 $bfFlat = []; foreach ($bf as $k => $v) $bfFlat['bf_' . $k] = $v;
 $from = trim($_GET['from'] ?? '');
 $to   = trim($_GET['to'] ?? '');
-$show = in_array($_GET['show'] ?? '', ['open', 'matched', 'both', 'aside'], true) ? $_GET['show'] : 'open';
+$show = in_array($_GET['show'] ?? '', ['open', 'matched', 'both', 'aside', 'all'], true) ? $_GET['show'] : 'open';
 // one group note's items, both sides
 $grp  = (int)($_GET['grp'] ?? 0);
 if ($grp && !get_issue($grp)) $grp = 0;
@@ -729,10 +729,11 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
     <select name="show" onchange="this.form.submit()">
       <option value="open"<?= $show === 'open' ? ' selected' : '' ?>>Unmatched</option>
       <option value="matched"<?= $show === 'matched' ? ' selected' : '' ?>>Matched</option>
-      <option value="both"<?= $show === 'both' ? ' selected' : '' ?>>Both</option>
+      <option value="both"<?= $show === 'both' ? ' selected' : '' ?>>Matched and unmatched</option>
       <?php if (aside_ready()): ?>
         <option value="aside"<?= $show === 'aside' ? ' selected' : '' ?>>Set aside</option>
       <?php endif; ?>
+      <option value="all"<?= $show === 'all' ? ' selected' : '' ?>>Everything loaded</option>
     </select></div>
   <div><label>Direction</label>
     <span style="display:flex;gap:.9rem;align-items:center;padding-top:.35rem;white-space:nowrap">
@@ -846,16 +847,18 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
   ?>
   <?php if ($heldN): ?>
     <p class="totgap" style="margin-top:-.5rem">
-      <span class="balance off"><?= number_format($heldN) ?> waiting in a run you have not finalised</span>
+      <span class="balance <?= $show === 'all' ? '' : 'off' ?>"><?= number_format($heldN) ?> waiting in a run you have not finalised</span>
       <span class="muted small"><?= h(side_label('ledger')) ?> <span class="num"><?= money($lHeld['total']) ?></span>,
         <?= h(side_label('bank')) ?> <span class="num"><?= money($bHeld['total']) ?></span> &mdash;
-        out of the lists and out of the difference until the run is finalised or thrown away</span>
+        <?= $show === 'all'
+            ? 'counted here, because this view leaves nothing out, but they cannot be ticked until that run is finalised or thrown away'
+            : 'out of the lists and out of the difference until the run is finalised or thrown away' ?></span>
       <?php foreach (array_slice($lHeld['runs'] ?: $bHeld['runs'], 0, 2) as $r): ?>
         <a class="btn ghost small" href="review.php?run=<?= (int)$r['id'] ?>">Open <?= h($r['run_ref']) ?></a>
       <?php endforeach; ?>
     </p>
   <?php endif; ?>
-  <?php if ($asideN && $show !== 'aside'): ?>
+  <?php if ($asideN && in_array($show, ['open', 'both'], true)): ?>
     <p class="totgap" style="margin-top:-.5rem">
       <span class="muted small">excluding</span>
       <a class="balance" href="?<?= h(http_build_query(['show' => 'aside'] + array_diff_key($_GET, ['show' => 1, 'lp' => 1, 'bp' => 1]))) ?>"
@@ -885,7 +888,7 @@ foreach ([['searchL', ['bq' => $bq, 'bs' => $bsort, 'bd' => $bdir, 'ls' => $lsor
     <div>
       <div class="side-head"><h2><?= $title ?></h2>
         <span class="muted small"><?= number_format($totalN) ?><?= $sign === 'in' ? ' money in'
-            : ($sign === 'out' ? ' money out' : '') ?><?= $show === 'both' ? ', ' . number_format($openN) . ' open' : '' ?>,
+            : ($sign === 'out' ? ' money out' : '') ?><?= in_array($show, ['both', 'all'], true) ? ', ' . number_format($openN) . ' open' : '' ?>,
           totalling <span class="num <?= $tot < 0 ? 'neg' : '' ?>"><?= money($tot) ?></span>
           <?php if ($pages > 1): ?><br>showing <?= number_format(count($rows)) ?> on page
             <?= $page ?> of <?= $pages ?><?php endif; ?></span></div>
