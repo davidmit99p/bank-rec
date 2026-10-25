@@ -525,13 +525,39 @@ if (!$noFiles && !$spareCount): ?>
     ? 'This reconciliation has no file on that side yet.'
     : 'This reconciliation needs a file on each side first.' ?></p></div>
 <?php elseif ($tooBig): ?>
+  <?php
+    // The usual cure is a coarser thing across the top, so offer it rather than
+    // describing it: a year holds a dozen months, and twelve columns draw where
+    // a hundred and fifty do not.
+    $coarser = ['date' => 'month', 'month' => 'year', 'year' => ''];
+    $next = $coarser[$c] ?? ($c === '' ? null : 'year');
+    $offer = [];
+    if ($next !== null && $next !== '' && isset($dims[$next])) {
+        $offer[$next] = $dims[$next]['label'] . ' across the top';
+    }
+    if ($c !== '') $offer[''] = 'One column instead';
+  ?>
   <div class="panel" style="background:#fdf6e6;border-color:#e8d9a8">
-    <p style="margin:0">That makes <?= number_format(count($rowKeys)) ?> rows by <?= number_format(count($colKeys)) ?>
-      columns &mdash; too many to draw. Narrow the rows with the
-      &ldquo;Only <?= h(mb_strtolower($dims[$r]['label'])) ?> like&rdquo; box, add a filter, or choose
-      something with fewer values across the top (month rather than date, say).
-      The limits are <?= number_format(PIVOT_MAX_ROWS) ?> rows, <?= PIVOT_MAX_COLS ?> columns and
+    <p style="margin:0 0 .5rem">That makes <?= number_format(count($rowKeys)) ?> rows by
+      <?= number_format(count($colKeys)) ?> columns &mdash; too many to draw. The limits are
+      <?= number_format(PIVOT_MAX_ROWS) ?> rows, <?= PIVOT_MAX_COLS ?> columns and
       <?= number_format(PIVOT_MAX_CELLS) ?> cells between them.</p>
+    <?php if ($offer): ?>
+      <p style="margin:0 0 .4rem;display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+        <?php foreach ($offer as $k => $label): ?>
+          <a class="btn" href="?<?= h(http_build_query(array_filter(
+              ['v' => $view === 'diff' ? '' : $view, 'r' => $r, 'c' => $k, 'f' => $f, 'fv' => $fv,
+               'rf' => $rf, 'show' => $show, 'opp' => $opp ? 1 : '', 'all' => $hide ? '' : 1],
+              fn($v) => $v !== '' && $v !== null))) ?>"><?= h($label) ?></a>
+        <?php endforeach; ?>
+        <span class="muted small">or narrow the rows with the
+          &ldquo;Only <?= h(mb_strtolower($dims[$r]['label'])) ?> like&rdquo; box, or add a filter</span>
+      </p>
+    <?php else: ?>
+      <p class="small muted" style="margin:0">There is already only one column, so it is the rows:
+        narrow them with the &ldquo;Only <?= h(mb_strtolower($dims[$r]['label'])) ?> like&rdquo; box,
+        or add a filter.</p>
+    <?php endif; ?>
   </div>
 <?php elseif (!$rowKeys): ?>
   <div class="panel">
@@ -605,16 +631,16 @@ if (!$noFiles && !$spareCount): ?>
           </tr>
         <?php endforeach; ?>
         </tbody>
-        <?php if ($c !== ''): ?>
         <tfoot><tr>
           <th class="pv-rowhead">Total</th>
-          <?php foreach ($colKeys as $ck) {
-              $q = pivot_merge($base, pivot_link_parts($c, $ck, $dims));
-              echo $cellHtml($colTot[$ck] ?? null, 'transactions.php?' . http_build_query($q), true);
-          } ?>
+          <?php if ($c !== ''): ?>
+            <?php foreach ($colKeys as $ck) {
+                $q = pivot_merge($base, pivot_link_parts($c, $ck, $dims, $only));
+                echo $cellHtml($colTot[$ck] ?? null, 'transactions.php?' . http_build_query($q), true);
+            } ?>
+          <?php endif; ?>
           <?= $cellHtml($grand, 'transactions.php?' . http_build_query($base), true) ?>
         </tr></tfoot>
-        <?php endif; ?>
       </table>
     </div>
     <p class="small muted" style="margin-bottom:0"><?php if ($oneSide): ?>
