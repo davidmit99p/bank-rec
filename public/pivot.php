@@ -187,8 +187,9 @@ function pivot_side($side, array $dims, $r, $c, $f, $fv, $show, $rf = '')
     $rx = $dims[$r][$p];
     $cx = $c !== '' ? $dims[$c][$p] : "'all'";
     $where = [file_where($side, 't')];
-    if ($show === 'open')    $where[] = open_where('t');
+    if ($show === 'open')    $where[] = open_where('t') . ' AND ' . not_aside_where('t');
     if ($show === 'matched') $where[] = matched_where('t');
+    if ($show === 'aside')   $where[] = aside_where('t');
     $args = [];
     if ($f !== '' && $fv !== '') { $where[] = $dims[$f][$p] . ' = ?'; $args[] = $fv; }
     if ($rowCond = pivot_row_where($rx, $rf)) {
@@ -298,6 +299,64 @@ $settings = array_filter(['v' => $view === 'diff' ? '' : $view,
                           'r' => $r, 'c' => $c, 'f' => $f, 'fv' => $fv, 'rf' => $rf, 'show' => $show,
                           'opp' => $opp ? 1 : '', 'all' => $hide ? '' : 1],
                          fn($v) => $v !== '' && $v !== null);
+
+// WHY IS IT EMPTY? "No data" is not an answer. So when nothing comes back, the
+// same question is asked again with the filters peeled off one at a time, and
+// whichever one is responsible is named.
+//
+// The telling case is a shared file: items matched in ANOTHER reconciliation are
+// not matched in this one, so asking for matched here is right to show nothing -
+// but only if it says so.
+function pivot_why_empty($side, array $dims, $r, $c, $f, $fv, $show, $rf)
+{
+    $count = function ($extra = []) use ($side) {
+        $where = [file_where($side, 't')];
+        foreach ($extra as $w) $where[] = $w;
+        $sql = "SELECT COUNT(*) n, COALESCE(SUM(t.value), 0) total FROM rec_txns t
+                WHERE " . implode(' AND ', $where) . not_split('t');
+        return db()->query($sql)->fetch();
+    };
+
+    $all = $count();
+    if (!(int)$all['n']) {
+        return 'There is nothing loaded on that side at all.';
+    }
+
+    $state = ['open' => open_where('t') . ' AND ' . not_aside_where('t'),
+              'matched' => matched_where('t'),
+              'aside' => aside_where('t'),
+              'both' => '1 = 1'][$show] ?? '1 = 1';
+    $ofState = $count([$state]);
+    $words = ['open' => 'unmatched', 'matched' => 'matched', 'aside' => 'set aside',
+              'both' => 'loaded'][$show] ?? 'loaded';
+
+    if (!(int)$ofState['n']) {
+        $out = 'Of the ' . number_format((int)$all['n']) . ' items on that side, none are '
+             . $words . ' in this reconciliation.';
+        // the shared-file trap, worth naming because it looks like a fault
+        if ($show === 'matched') {
+            $elsewhere = $count([matched_anywhere('t')]);
+            if ((int)$elsewhere['n']) {
+                $out .= ' ' . number_format((int)$elsewhere['n']) . ' of them are matched in a '
+                      . 'different reconciliation - this file is used by more than one, and matching '
+                      . 'belongs to the reconciliation it was done in.';
+            }
+        }
+        return $out;
+    }
+
+    // something is in that state, so a filter is hiding it
+    $bits = [];
+    if ($f !== '' && $fv !== '') $bits[] = 'the "' . $dims[$f]['label'] . ' equal to ' . $fv . '" filter';
+    if (trim((string)$rf) !== '') $bits[] = 'the "only ' . mb_strtolower($dims[$r]['label'])
+                                          . ' like ' . trim((string)$rf) . '" box';
+    $have = number_format((int)$ofState['n']) . ' ' . $words . ' items worth '
+          . money((float)$ofState['total']) . ' on that side';
+    return $bits
+        ? 'There are ' . $have . ', but ' . implode(' and ', $bits) . ' leaves none of them.'
+        : 'There are ' . $have . ', which should be showing - so this is a fault, not a filter. '
+          . 'Worth telling whoever looks after the tool.';
+}
 
 // --- the grid as a file ----------------------------------------------------------
 if (isset($_GET['csv']) && !$noFiles) {
@@ -475,10 +534,24 @@ if (!$noFiles && !$spareCount): ?>
       <?= number_format(PIVOT_MAX_CELLS) ?> cells between them.</p>
   </div>
 <?php elseif (!$rowKeys): ?>
-  <div class="panel"><p class="muted" style="margin:0"><?php
-    echo $allRows && $hide
-      ? '&#10003; Everything agrees in every slice. Tick &ldquo;Show rows and columns that agree&rdquo; to see them.'
-      : 'Nothing to show for these settings.'; ?></p></div>
+  <div class="panel">
+    <?php if ($allRows && $hide): ?>
+      <p class="muted" style="margin:0">&#10003; Everything agrees in every slice.
+        Tick &ldquo;Show rows and columns that agree&rdquo; to see them.</p>
+    <?php else: ?>
+      <p style="margin:0 0 .3rem"><b>Nothing to show for these settings.</b></p>
+      <p class="muted" style="margin:0"><?= h(pivot_why_empty($oneSide ?? 'ledger', $dims, $r, $c, $f, $fv, $show, $rf)) ?></p>
+      <?php if (!$oneSide): ?>
+        <p class="muted small" style="margin:.3rem 0 0">That is the <?= h(side_label('ledger')) ?> side;
+          the <?= h(side_label('bank')) ?> side is asked the same way.</p>
+      <?php endif; ?>
+      <?php if (($f !== '' && $fv !== '') || trim((string)$rf) !== ''): ?>
+        <p style="margin:.5rem 0 0"><a class="btn ghost"
+          href="?<?= h(http_build_query(array_filter(['v' => $view === 'diff' ? '' : $view,
+                'r' => $r, 'c' => $c, 'show' => $show]))) ?>">Clear the filters and look again</a></p>
+      <?php endif; ?>
+    <?php endif; ?>
+  </div>
 <?php else: ?>
   <div class="panel">
     <p class="small muted" style="margin-top:0">
