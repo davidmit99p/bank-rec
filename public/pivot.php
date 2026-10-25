@@ -6,6 +6,12 @@
 // field to narrow everything by. Each cell is one side's total less the other's
 // for that slice. Click a cell and the transactions screen opens filtered to
 // exactly that slice on both sides, ready to look at or match.
+//
+// THREE VIEWS. The difference is the one that finds a gap, but once you know
+// where it is you want to read a side on its own - what this account actually
+// holds, month by month - so each side gets a pivot of its own. A one-side
+// pivot can also go by any field of THAT file, not only the fields both files
+// happen to share, because nothing has to line up for it to mean something.
 require_once __DIR__ . '/../includes/layout.php';
 
 $pdo = db();
@@ -24,7 +30,9 @@ const PIVOT_MAX_CELLS = 15000;
 // sides' files have one of that name - a slice has to mean the same thing on
 // each side. Matched by name, not number, so "Account" can be spare field 2 on
 // one file and 5 on the other.
-function pivot_dims()
+// $view is 'diff' (both sides, so only fields they share), or 'left'/'right'
+// for one side, where any field of that file will do.
+function pivot_dims($view = 'diff')
 {
     $dims = [
         'month'     => ['label' => 'Month',
@@ -37,6 +45,17 @@ function pivot_dims()
                         'l' => "CASE WHEN t.value < 0 THEN 'Money out' ELSE 'Money in' END",
                         'b' => "CASE WHEN t.value < 0 THEN 'Money out' ELSE 'Money in' END"],
     ];
+    if ($view === 'left' || $view === 'right') {
+        $side = $view === 'left' ? 'ledger' : 'bank';
+        $p    = $view === 'left' ? 'lcol' : 'rcol';
+        $expr = fn($c) => "COALESCE(NULLIF(UPPER(TRIM(t.{$c})), ''), '(blank)')";
+        foreach (file_extra_labels(side_file_id($side)) as $col => $label) {
+            $dims['f:' . $col . ':' . $col] = ['label' => $label, 'l' => $expr($col), 'b' => $expr($col),
+                                               $p => $col];
+        }
+        return $dims;
+    }
+
     $left  = file_extra_labels(side_file_id('ledger'));
     $right = file_extra_labels(side_file_id('bank'));
     $byName = [];
@@ -102,7 +121,10 @@ function pivot_label($dim, $key)
 }
 
 // Transactions-screen settings that pick out one slice of one dimension.
-function pivot_link_parts($dim, $key, array $dims)
+//
+// $only is 'l' or 'b' when just one side is being looked at: filtering the other
+// side by a field it may not even have would hide everything there.
+function pivot_link_parts($dim, $key, array $dims, $only = null)
 {
     if ($dim === '' || $key === null) return [];
     if ($dim === 'month') return ['months' => $key];
@@ -110,9 +132,12 @@ function pivot_link_parts($dim, $key, array $dims)
     if ($dim === 'date')  return ['from' => $key, 'to' => $key];
     if ($dim === 'direction') return $key === 'Money out' ? ['out' => 1] : ['in' => 1];
     $d = $dims[$dim] ?? null;
-    if (!$d || empty($d['lcol'])) return [];
+    if (!$d) return [];
     $v = $key === '(blank)' ? '(blank)' : '=' . $key;
-    return ['lf_' . $d['lcol'] => $v, 'bf_' . $d['rcol'] => $v];
+    $out = [];
+    if ($only !== 'b' && !empty($d['lcol'])) $out['lf_' . $d['lcol']] = $v;
+    if ($only !== 'l' && !empty($d['rcol'])) $out['bf_' . $d['rcol']] = $v;
+    return $out;
 }
 
 // Put two sets of transactions-screen settings together. Two date ranges
@@ -129,7 +154,10 @@ function pivot_merge(array $a, array $b)
 }
 
 // --- settings -----------------------------------------------------------------
-$dims = pivot_dims();
+$view = in_array($_GET['v'] ?? '', ['diff', 'left', 'right'], true) ? $_GET['v'] : 'diff';
+$oneSide = $view === 'left' ? 'ledger' : ($view === 'right' ? 'bank' : null);
+$only    = $view === 'left' ? 'l' : ($view === 'right' ? 'b' : null);
+$dims = pivot_dims($view);
 $r    = isset($dims[$_GET['r'] ?? '']) ? $_GET['r'] : null;
 $c    = isset($dims[$_GET['c'] ?? '']) ? $_GET['c'] : '';
 $f    = isset($dims[$_GET['f'] ?? '']) ? $_GET['f'] : '';
@@ -137,8 +165,9 @@ $fv   = trim((string)($_GET['fv'] ?? ''));
 $rf   = trim((string)($_GET['rf'] ?? ''));
 $show = in_array($_GET['show'] ?? '', ['open', 'matched', 'both', 'aside'], true) ? $_GET['show'] : 'open';
 $opp  = !empty($_GET['opp']);
-// hiding what agrees is the useful default; "all" asks to see everything
-$hide = empty($_GET['all']);
+// hiding what agrees is the useful default; "all" asks to see everything.
+// Reading one side there is nothing to agree with, so everything is shown.
+$hide = $oneSide ? false : empty($_GET['all']);
 
 // a first visit: something sensible down the side and across the top
 if ($r === null) {
@@ -188,9 +217,12 @@ if ($f !== '') {
 }
 
 $grid = [];          // [row][col] => ['l' => total, 'b' => total, 'ln' => n, 'bn' => n]
-$noFiles = side_file_id('ledger') === null || side_file_id('bank') === null;
+$noFiles = $oneSide
+    ? side_file_id($oneSide) === null
+    : (side_file_id('ledger') === null || side_file_id('bank') === null);
 if (!$noFiles) {
-    foreach (['ledger' => 'l', 'bank' => 'b'] as $side => $p) {
+    $gather = $oneSide ? [$oneSide => $only] : ['ledger' => 'l', 'bank' => 'b'];
+    foreach ($gather as $side => $p) {
         foreach (pivot_side($side, $dims, $r, $c, $f, $fv, $show, $rf) as $row) {
             $cell = &$grid[(string)$row['rk']][(string)$row['ck']];
             $cell[$p] = ($cell[$p] ?? 0) + (float)$row['total'];
@@ -200,9 +232,11 @@ if (!$noFiles) {
     }
 }
 
-// the difference in one cell: left less right, or left plus right when the
-// right-hand file carries the opposite sign
-$diffOf = fn($cell) => (float)($cell['l'] ?? 0) + ($opp ? 1 : -1) * (float)($cell['b'] ?? 0);
+// What a cell shows: the difference between the sides, or - reading one side -
+// simply what that side holds.
+$diffOf = $oneSide
+    ? fn($cell) => (float)($cell[$only] ?? 0)
+    : fn($cell) => (float)($cell['l'] ?? 0) + ($opp ? 1 : -1) * (float)($cell['b'] ?? 0);
 
 $rowKeys = array_map('strval', array_keys($grid));
 $colKeys = [];
@@ -253,28 +287,31 @@ $tooBig = count($rowKeys) > PIVOT_MAX_ROWS || count($colKeys) > PIVOT_MAX_COLS
 
 // every drill-down starts from these, plus the filter if there is one
 $base = ['show' => $show];
-if ($f !== '' && $fv !== '') $base = pivot_merge($base, pivot_link_parts($f, $fv, $dims));
-$cellLink = function ($rk, $ck) use ($base, $r, $c, $dims) {
-    $q = pivot_merge($base, pivot_link_parts($r, $rk, $dims));
-    if ($ck !== null && $c !== '') $q = pivot_merge($q, pivot_link_parts($c, $ck, $dims));
+if ($f !== '' && $fv !== '') $base = pivot_merge($base, pivot_link_parts($f, $fv, $dims, $only));
+$cellLink = function ($rk, $ck) use ($base, $r, $c, $dims, $only) {
+    $q = pivot_merge($base, pivot_link_parts($r, $rk, $dims, $only));
+    if ($ck !== null && $c !== '') $q = pivot_merge($q, pivot_link_parts($c, $ck, $dims, $only));
     return 'transactions.php?' . http_build_query($q);
 };
 
-$settings = array_filter(['r' => $r, 'c' => $c, 'f' => $f, 'fv' => $fv, 'rf' => $rf, 'show' => $show,
+$settings = array_filter(['v' => $view === 'diff' ? '' : $view,
+                          'r' => $r, 'c' => $c, 'f' => $f, 'fv' => $fv, 'rf' => $rf, 'show' => $show,
                           'opp' => $opp ? 1 : '', 'all' => $hide ? '' : 1],
                          fn($v) => $v !== '' && $v !== null);
 
 // --- the grid as a file ----------------------------------------------------------
 if (isset($_GET['csv']) && !$noFiles) {
     $rec  = current_rec();
-    $name = trim(preg_replace('/[^A-Za-z0-9]+/', '-', ($rec['name'] ?? 'reconciliation') . ' pivot'), '-');
+    $name = trim(preg_replace('/[^A-Za-z0-9]+/', '-', ($rec['name'] ?? 'reconciliation') . ' pivot'
+            . ($oneSide ? ' ' . side_label($oneSide) : ' differences')), '-');
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="' . $name . '-' . date('Y-m-d') . '.csv"');
     $out = fopen('php://output', 'w');
     echo "\xEF\xBB\xBF";
     $cols = $c !== '' ? $colKeys : ['all'];
     fputcsv($out, array_merge([$dims[$r]['label']],
-        array_map(fn($ck) => $c !== '' ? pivot_label($c, $ck) : 'Difference', $cols),
+        array_map(fn($ck) => $c !== '' ? pivot_label($c, $ck)
+            : ($oneSide ? side_label($oneSide) : 'Difference'), $cols),
         $c !== '' ? ['Total'] : []));
     foreach ($rowKeys as $rk) {
         $line = [pivot_label($r, $rk)];
@@ -293,10 +330,22 @@ if (isset($_GET['csv']) && !$noFiles) {
 render_header('Pivot');
 
 // one cell of the grid
-$cellHtml = function ($cell, $href, $strong = false) use ($diffOf) {
+$cellHtml = function ($cell, $href, $strong = false) use ($diffOf, $oneSide, $only) {
     if (!$cell || (empty($cell['ln']) && empty($cell['bn']))) return '<td class="num pv-empty"></td>';
     $d = $diffOf($cell);
     $ok = abs($d) < 0.005;
+
+    // Reading one side, a figure is just a figure: no colour, because there is
+    // nothing for it to disagree with. The count still comes on hover, and the
+    // cell still opens that slice on that side.
+    if ($oneSide) {
+        $n = (int)($cell[$only . 'n'] ?? 0);
+        if (!$n) return '<td class="num pv-empty"></td>';
+        $tip = $n . ' item' . ($n === 1 ? '' : 's') . ' in ' . side_label($oneSide);
+        return '<td class="num' . ($strong ? ' pv-tot' : '') . ($d < 0 ? ' neg' : '')
+             . '" title="' . h($tip) . '"><a href="' . h($href) . '">' . money($d) . '</a></td>';
+    }
+
     $tip = side_label('ledger') . ' ' . money($cell['l'] ?? 0) . ' (' . (int)($cell['ln'] ?? 0) . ')  |  '
          . side_label('bank') . ' ' . money($cell['b'] ?? 0) . ' (' . (int)($cell['bn'] ?? 0) . ')';
     // Port and starboard: red when only the left file has anything in this
@@ -309,15 +358,45 @@ $cellHtml = function ($cell, $href, $strong = false) use ($diffOf) {
          . '<a href="' . h($href) . '">' . ($ok ? '&ndash;' : money($d)) . '</a></td>';
 };
 ?>
-<h1>Pivot of differences</h1>
-<p class="muted">Find which slice a difference sits in. Choose what goes down the side and across the
-  top; each cell is <?= h(side_label('ledger')) ?> less <?= h(side_label('bank')) ?> for that slice.
-  <b>Click any cell</b> to open the transactions screen filtered to exactly that slice on both sides.
-  The box on the right narrows what goes down the side: <code>5035</code> for anything containing it,
-  <code>5035,5040</code> for either, <code>5000..5999</code> for a range, <code>!CASH</code> for
-  everything except.</p>
+<h1><?= $oneSide ? h(side_label($oneSide)) . ' pivot' : 'Pivot of differences' ?></h1>
+
+<?php
+  // the three views, as tabs: the difference, then each side on its own
+  $tabs = ['diff'  => 'Differences',
+           'left'  => side_label('ledger'),
+           'right' => side_label('bank')];
+  // the dimensions differ per view, so a setting that does not exist there is
+  // dropped rather than carried over as something meaningless
+  $carry = array_filter(['show' => $show, 'opp' => $opp ? 1 : '']);
+?>
+<div class="panel" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+  <?php foreach ($tabs as $k => $label): ?>
+    <a class="btn <?= $k === $view ? '' : 'ghost' ?>"
+       href="?<?= h(http_build_query($carry + ($k === 'diff' ? [] : ['v' => $k]))) ?>"><?= h($label) ?></a>
+  <?php endforeach; ?>
+  <span class="muted small"><?= $oneSide
+    ? 'One side on its own, by any field of that file'
+    : 'Each side against the other, by the fields they share' ?></span>
+</div>
+
+<?php if ($oneSide): ?>
+  <p class="muted">What <?= h(side_label($oneSide)) ?> holds, sliced however you like &mdash; by any
+    field of that file, not only the ones both files share. Each cell is that side's total for the
+    slice. <b>Click any cell</b> to open the transactions screen filtered to it on that side.
+    The box on the right narrows what goes down the side: <code>5035</code> for anything containing it,
+    <code>5035,5040</code> for either, <code>5000..5999</code> for a range, <code>!CASH</code> for
+    everything except.</p>
+<?php else: ?>
+  <p class="muted">Find which slice a difference sits in. Choose what goes down the side and across the
+    top; each cell is <?= h(side_label('ledger')) ?> less <?= h(side_label('bank')) ?> for that slice.
+    <b>Click any cell</b> to open the transactions screen filtered to exactly that slice on both sides.
+    The box on the right narrows what goes down the side: <code>5035</code> for anything containing it,
+    <code>5035,5040</code> for either, <code>5000..5999</code> for a range, <code>!CASH</code> for
+    everything except.</p>
+<?php endif; ?>
 
 <form method="get" class="panel" style="display:flex;gap:.75rem;align-items:end;flex-wrap:wrap">
+  <?php if ($view !== 'diff'): ?><input type="hidden" name="v" value="<?= h($view) ?>"><?php endif; ?>
   <div><label>Down the side</label>
     <select name="r" onchange="this.form.submit()">
       <?php foreach ($dims as $k => $d): ?>
@@ -354,15 +433,20 @@ $cellHtml = function ($cell, $href, $strong = false) use ($diffOf) {
       <option value="open"<?= $show === 'open' ? ' selected' : '' ?>>Unmatched</option>
       <option value="matched"<?= $show === 'matched' ? ' selected' : '' ?>>Matched</option>
       <option value="both"<?= $show === 'both' ? ' selected' : '' ?>>Everything</option>
+      <?php if (function_exists('aside_ready') && aside_ready()): ?>
+        <option value="aside"<?= $show === 'aside' ? ' selected' : '' ?>>Set aside</option>
+      <?php endif; ?>
     </select></div>
-  <div style="display:flex;flex-direction:column;gap:.2rem;padding-bottom:.2rem">
-    <label style="margin:0;color:var(--ink);white-space:nowrap"><input type="checkbox" name="all" value="1"
-      style="width:auto" <?= $hide ? '' : 'checked' ?> onchange="this.form.submit()"> Show rows and columns that agree</label>
-    <label style="margin:0;color:var(--ink);white-space:nowrap"><input type="checkbox" name="opp" value="1"
-      style="width:auto" <?= $opp ? 'checked' : '' ?> onchange="this.form.submit()">
-      <?= h(side_label('bank')) ?> is the opposite sign</label>
-  </div>
-  <a class="btn ghost" href="pivot.php">Reset</a>
+  <?php if (!$oneSide): ?>
+    <div style="display:flex;flex-direction:column;gap:.2rem;padding-bottom:.2rem">
+      <label style="margin:0;color:var(--ink);white-space:nowrap"><input type="checkbox" name="all" value="1"
+        style="width:auto" <?= $hide ? '' : 'checked' ?> onchange="this.form.submit()"> Show rows and columns that agree</label>
+      <label style="margin:0;color:var(--ink);white-space:nowrap"><input type="checkbox" name="opp" value="1"
+        style="width:auto" <?= $opp ? 'checked' : '' ?> onchange="this.form.submit()">
+        <?= h(side_label('bank')) ?> is the opposite sign</label>
+    </div>
+  <?php endif; ?>
+  <a class="btn ghost" href="?<?= h(http_build_query($view === 'diff' ? [] : ['v' => $view])) ?>">Reset</a>
   <?php if (!$noFiles && $rowKeys && !$tooBig): ?>
     <a class="btn ghost" style="margin-left:auto" href="?<?= h(http_build_query($settings + ['csv' => 1])) ?>">Download</a>
   <?php endif; ?>
@@ -371,12 +455,16 @@ $cellHtml = function ($cell, $href, $strong = false) use ($diffOf) {
 <?php
 $spareCount = count(array_filter(array_keys($dims), fn($k) => str_starts_with($k, 'f:')));
 if (!$noFiles && !$spareCount): ?>
-  <p class="small muted">Only dates and money in/out are offered. A spare field can be used once
-    both files have one with the same name &mdash; name them on the <a href="files.php">Files</a> page.</p>
+  <p class="small muted">Only dates and money in/out are offered. <?= $oneSide
+    ? 'Name this file\'s spare fields on the <a href="files.php">Files</a> page to slice by them.'
+    : 'A spare field can be used once both files have one with the same name &mdash; name them on the '
+      . '<a href="files.php">Files</a> page.' ?></p>
 <?php endif; ?>
 
 <?php if ($noFiles): ?>
-  <div class="panel"><p class="muted">This reconciliation needs a file on each side first.</p></div>
+  <div class="panel"><p class="muted"><?= $oneSide
+    ? 'This reconciliation has no file on that side yet.'
+    : 'This reconciliation needs a file on each side first.' ?></p></div>
 <?php elseif ($tooBig): ?>
   <div class="panel" style="background:#fdf6e6;border-color:#e8d9a8">
     <p style="margin:0">That makes <?= number_format(count($rowKeys)) ?> rows by <?= number_format(count($colKeys)) ?>
@@ -401,8 +489,14 @@ if (!$noFiles && !$spareCount): ?>
       Hover a cell for each side's total and count.</p>
     <?php
     // the legend follows the Show setting, so "items" means what is on show
-    $items = ['open' => 'items still to match', 'matched' => 'matched items', 'both' => 'items'][$show];
+    $items = ['open' => 'items still to match', 'matched' => 'matched items', 'both' => 'items',
+              'aside' => 'items set aside'][$show] ?? 'items';
     ?>
+    <?php if ($oneSide): ?>
+      <p class="small muted" style="margin-top:-.2rem">Each figure is what <?= h(side_label($oneSide)) ?>
+        holds in that slice, negative in red. A blank cell has no <?= $items ?> in it. Hover for the
+        number of items.</p>
+    <?php else: ?>
     <p class="small pv-legend pv-list">
       <span><span class="pv-key pv-left"></span><b>Only in <?= h(side_label('ledger')) ?></b>:
         nothing on the other side in this slice</span>
@@ -412,6 +506,7 @@ if (!$noFiles && !$spareCount): ?>
       <span><span class="pv-key pv-dash"></span><b>Nets to zero</b>: <?= $items ?> here,
         but they cancel out, so nothing is missing</span>
       <span><span class="pv-key"></span><b>Blank</b>: no <?= $items ?> in this slice</span></p>
+    <?php endif; ?>
     <div class="scroll" style="max-height:70vh">
       <table class="pivot">
         <thead><tr>
@@ -421,7 +516,7 @@ if (!$noFiles && !$spareCount): ?>
           <?php endforeach; ?>
             <th class="num">Total</th>
           <?php else: ?>
-            <th class="num">Difference</th>
+            <th class="num"><?= $oneSide ? h(side_label($oneSide)) : 'Difference' ?></th>
           <?php endif; ?>
         </tr></thead>
         <tbody>
@@ -449,9 +544,13 @@ if (!$noFiles && !$spareCount): ?>
         <?php endif; ?>
       </table>
     </div>
-    <p class="small muted" style="margin-bottom:0">The corner is the whole difference for these settings.
+    <p class="small muted" style="margin-bottom:0"><?php if ($oneSide): ?>
+      The corner is everything <?= h(side_label($oneSide)) ?> holds for these settings.
+    <?php else: ?>
+      The corner is the whole difference for these settings.
       With nothing hidden and no filter it is the same figure the Overview shows. Totals include rows
-      that are hidden for agreeing, so they always add up to what is really there.</p>
+      that are hidden for agreeing, so they always add up to what is really there.
+    <?php endif; ?></p>
   </div>
 <?php endif; ?>
 <?php render_footer(); ?>
